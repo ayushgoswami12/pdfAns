@@ -7,3 +7,4 @@ After you have pasted all the dependencies you have to do :
 uv pip install -r .\requirements.txt
 That will install all the dependencies that are present in the ' requirement.txt '
 
+few more steps
