@@ -8,3 +8,8 @@ uv pip install -r .\requirements.txt
 That will install all the dependencies that are present in the ' requirement.txt '
 
 few more steps
+
+
+Some Notes : 
+for embeddings in production you might have to use : Pinecode refer = "https://docs.langchain.com/oss/python/integrations/vectorstores"
+
