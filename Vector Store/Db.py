@@ -1,5 +1,5 @@
 # from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_huggingface import HuggingFaceEmbeddings
+# from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_chroma import Chroma
 from langchain_core.documents import Document 
 from dotenv import load_dotenv
@@ -19,5 +19,7 @@ embedding_model = MistralAIEmbeddings()
 
 vectorStore = Chroma.from_documents(
     documents=docs ,
-    embedding=embedding_model
+    embedding=embedding_model,
+    persist_directory="Chrome_db"
 )
+
