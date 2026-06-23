@@ -14,4 +14,4 @@ Some Notes :
 1. for embeddings in production you might have to use : Pinecode refer = "https://docs.langchain.com/oss/python/integrations/vectorstores"
 
 2. You use Recursive text for splitting 
-3. ChromaDb use SQLITE in the backend  
+3. ChromaDb use SQLITE in the backend  (embeddings are saved in folder inside ChromaDb)
