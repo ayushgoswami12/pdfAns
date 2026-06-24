@@ -30,7 +30,9 @@ result = vectorStore.similarity_search("What is used for data analysis ?", k=2)
 for i in result : 
     print(i.page_content)
     
-retriver = vectorStore.as_retriever()
+retriver = vectorStore.as_retriever(
+    #by default it follows similarity search 
+)
 docs = retriver.invoke("Explain deep learning ")
 
 for  d in docs : 

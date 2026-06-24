@@ -8,10 +8,13 @@ uv pip install -r .\requirements.txt
 That will install all the dependencies that are present in the ' requirement.txt '
 
 few more steps
-
+Note : suppose in Retrivers you may ask a question that : "what is Gradient Descent" but rather than that the user might also ask "Explain Gradient Descent " so for that we use mutliQuery (differnt wordings -> different embeddings)
 
 Some Notes : 
 1. for embeddings in production you might have to use : Pinecode refer = "https://docs.langchain.com/oss/python/integrations/vectorstores"
 
 2. You use Recursive text for splitting 
 3. ChromaDb use SQLITE in the backend  (embeddings are saved in folder inside ChromaDb)
+4. Retrivers are of 2 types 
+        - by data sources (wikipedia , arvix etc)   refer = "arvix01.py"
+        - by Retriver strategy ()
