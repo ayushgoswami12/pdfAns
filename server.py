@@ -68,5 +68,5 @@ async def upload_pdf(file: UploadFile = File(...)):
 
 if __name__ == "__main__":
     import uvicorn
-    reload=True
-    uvicorn.run(app, host="0.0.0.0", port=8000 ,reload=True)
+
+    uvicorn.run(app, host="0.0.0.0", port=8000 )
