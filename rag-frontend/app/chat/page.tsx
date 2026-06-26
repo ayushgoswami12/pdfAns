@@ -329,6 +329,7 @@ export default function Home() {
               </button>
             </div>
             {/* new design */}
+            {/* new  */}
             <p className="text-center text-[11px] text-zinc-600 mt-4 font-medium">
               AI can make mistakes. Consider verifying important information.
             </p>
