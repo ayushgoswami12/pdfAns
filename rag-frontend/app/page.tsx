@@ -1,124 +1,216 @@
-// Landing Page 
+"use client";
 
 import Link from "next/link";
 
-export default function LandingPage() {
+export default function HomePage() {
   return (
-    <div className="relative min-h-screen w-full flex flex-col items-center justify-center overflow-hidden bg-[#0A0A0A] font-sans selection:bg-white/30 selection:text-white">
+    <main className="min-h-screen flex flex-col font-[family-name:var(--font-inter)]">
       
-      {/* 
-        1. THE SPATIAL ENVIRONMENT (Dynamic Background)
-        In VisionOS, the background isn't solid. It's a mix of vibrant, ambient colors 
-        that shift behind the glass panels.
-      */}
-      <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
-        {/* Soft Violet/Pink Orb */}
-        <div className="absolute top-[-10%] left-[-10%] w-[60vw] h-[60vw] max-w-[800px] max-h-[800px] bg-gradient-to-br from-fuchsia-500/40 to-purple-600/40 blur-[120px] rounded-full animate-pulse-slow mix-blend-screen" />
-        {/* Deep Blue/Cyan Orb */}
-        <div className="absolute bottom-[-10%] right-[-10%] w-[60vw] h-[60vw] max-w-[800px] max-h-[800px] bg-gradient-to-tl from-blue-600/40 to-cyan-400/40 blur-[120px] rounded-full animate-pulse-slow mix-blend-screen" style={{ animationDelay: "2s" }} />
-        {/* Warm Peach/Orange Center Orb */}
-        <div className="absolute top-[20%] left-[30%] w-[40vw] h-[40vw] max-w-[500px] max-h-[500px] bg-gradient-to-tr from-orange-400/20 to-pink-500/20 blur-[100px] rounded-full animate-pulse-slow mix-blend-screen" style={{ animationDelay: "4s" }} />
-      </div>
-
-      {/* 
-        2. FLOATING GLASS NAVIGATION
-        Notice the heavy blur and the inset shadow to simulate light hitting the top edge.
-      */}
-      <nav className="absolute top-8 z-50 flex items-center justify-between px-6 py-3 w-11/12 max-w-3xl bg-white/[0.05] backdrop-blur-3xl border border-white/[0.1] rounded-full shadow-[0_8px_32px_rgba(0,0,0,0.3),inset_0_1px_1px_rgba(255,255,255,0.2)]">
-        <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-full bg-white/10 flex items-center justify-center shadow-inner">
-             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-          </div>
-          <span className="font-semibold tracking-wide text-white/90 text-sm">NEXUS</span>
+      {/* NAVBAR */}
+      <nav className="fixed top-0 left-0 right-0 h-[64px] z-50 flex items-center justify-between px-6 md:px-12 bg-[#080A0F]/80 backdrop-blur-[20px] border-b border-[var(--border-subtle)]">
+        <div className="flex items-center">
+          <span className="font-[family-name:var(--font-syne)] text-[20px] font-semibold text-[var(--text-primary)]">Scholar</span>
+          <span className="font-[family-name:var(--font-syne)] text-[20px] font-semibold text-[var(--accent-primary)]">AI</span>
         </div>
-        <div className="flex gap-6 text-[13px] font-medium text-white/60">
-          <span className="text-white drop-shadow-md">Environment</span>
-          <span className="hover:text-white transition-colors cursor-pointer">Security</span>
-          <span className="hover:text-white transition-colors cursor-pointer">Specs</span>
+        <div className="flex items-center gap-6">
+          <a href="#" className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] text-sm transition-colors hidden sm:block">
+            GitHub
+          </a>
+          <Link 
+            href="/chat" 
+            className="px-5 py-2 rounded-full bg-[var(--accent-primary)] text-white text-sm font-medium hover:brightness-110 shadow-[var(--glow-accent)] transition-all"
+          >
+            Launch App
+          </Link>
         </div>
       </nav>
 
-      {/* 
-        3. THE MAIN SPATIAL WINDOW
-        This is the core VisionOS element. A massive pane of frosted glass.
-      */}
-      <main className="relative z-10 w-11/12 max-w-4xl p-10 md:p-16 flex flex-col items-center text-center bg-white/[0.03] backdrop-blur-[40px] border border-white/[0.08] rounded-[2.5rem] shadow-[0_20px_40px_rgba(0,0,0,0.4),inset_0_1px_1px_rgba(255,255,255,0.3),inset_0_0_20px_rgba(255,255,255,0.02)]">
+      {/* HERO SECTION */}
+      <section className="relative h-screen flex flex-col items-center justify-center overflow-hidden">
         
-        {/* Subtle Status Pill */}
-        <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/[0.05] border border-white/[0.1] text-xs font-medium text-white/80 mb-8 shadow-[inset_0_1px_1px_rgba(255,255,255,0.1)]">
-          <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.8)]" />
-          Spatial RAG Active
-        </div>
+        {/* Layer 1: Radial Gradient */}
+        <div 
+          className="absolute inset-0 z-0"
+          style={{ background: "radial-gradient(ellipse 80% 60% at 50% 0%, rgba(108,99,255,0.12) 0%, transparent 70%)" }}
+        />
 
-        {/* VisionOS Typography (Soft white, distinct text shadows for legibility over glass) */}
-        <h1 className="text-5xl md:text-7xl font-bold tracking-tight text-white/95 leading-[1.1] mb-6 drop-shadow-lg">
-          Immerse yourself <br />
-          in your knowledge.
-        </h1>
+        {/* Layer 2: Grid Lines */}
+        <div 
+          className="absolute inset-0 z-0 opacity-40"
+          style={{
+            backgroundImage: `linear-gradient(rgba(30,32,48,0.6) 1px, transparent 1px), linear-gradient(90deg, rgba(30,32,48,0.6) 1px, transparent 1px)`,
+            backgroundSize: "60px 60px",
+            maskImage: "linear-gradient(to bottom, black 0%, transparent 100%)",
+            WebkitMaskImage: "linear-gradient(to bottom, black 0%, transparent 100%)"
+          }}
+        />
 
-        <p className="text-lg text-white/70 max-w-2xl mb-12 font-medium leading-relaxed drop-shadow-md">
-          A seamless, spatial interface for your documents. Upload PDFs to the local vector engine and interact with your personal AI assistant.
-        </p>
+        {/* Layer 3: 3D Floating Orb */}
+        <div 
+          className="absolute z-0 w-[320px] h-[320px] opacity-15 blur-[60px]"
+          style={{
+            top: "calc(50% - 180px)",
+            borderRadius: "60% 40% 30% 70% / 60% 30% 70% 40%",
+            background: "conic-gradient(from 180deg, #6C63FF, #A78BFA, #38BDF8, #6C63FF)",
+            animation: "float 8s ease-in-out infinite"
+          }}
+        />
 
-        {/* 
-          Glass Action Buttons
-          Notice how the primary button is highly translucent but uses light physics to pop.
-        */}
-        <div className="flex flex-col sm:flex-row items-center gap-4">
-          <Link 
-            href="/chat"
-            className="px-8 py-4 bg-white/[0.15] hover:bg-white/[0.25] text-white rounded-full font-semibold transition-all active:scale-95 border border-white/[0.2] shadow-[0_8px_16px_rgba(0,0,0,0.2),inset_0_1px_1px_rgba(255,255,255,0.5)] flex items-center gap-2 backdrop-blur-md"
+        {/* Layer 4: Smaller Sharp Orb */}
+        <div 
+          className="absolute z-0 w-[120px] h-[120px] blur-[20px]"
+          style={{
+            top: "calc(50% - 80px)",
+            background: "radial-gradient(circle, rgba(108,99,255,0.6), transparent)",
+            animation: "pulse-orb 4s ease-in-out infinite"
+          }}
+        />
+
+        {/* Hero Content */}
+        <div className="relative z-10 flex flex-col items-center px-4 w-full max-w-4xl text-center">
+          
+          <div 
+            className="mb-8 px-[14px] py-[6px] rounded-full text-[11px] font-[family-name:var(--font-mono)] text-[var(--accent-primary)] bg-[#6C63FF]/10 border border-[#6C63FF]/30 tracking-[0.15em] uppercase"
+            style={{ animation: "fadeInUp 0.6s ease 0.1s both" }}
           >
-            Enter Workspace
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+            POWERED BY MISTRAL AI + CHROMADB
+          </div>
+
+          <h1 
+            className="font-[family-name:var(--font-syne)] text-[42px] md:text-[72px] font-[800] leading-[1.05] tracking-[-0.03em] max-w-[700px]"
+            style={{ animation: "fadeInUp 0.6s ease 0.2s both" }}
+          >
+            <span className="block text-[var(--text-primary)]">Ask Anything</span>
+            <span className="block text-[var(--accent-primary)] drop-shadow-[0_0_40px_rgba(108,99,255,0.5)]">
+              About Your PDFs.
+            </span>
+          </h1>
+
+          <p 
+            className="mt-5 text-[17px] font-[300] text-[var(--text-secondary)] max-w-[480px] leading-[1.7]"
+            style={{ animation: "fadeInUp 0.6s ease 0.35s both" }}
+          >
+            Upload any PDF. Ask questions. Get precise answers — streamed in real time from your document, not the internet.
+          </p>
+
+          <Link
+            href="/chat"
+            className="mt-10 px-10 py-4 rounded-full bg-[var(--accent-primary)] text-white text-[15px] font-[600] group relative overflow-hidden transition-all duration-200"
+            style={{
+              animation: "fadeInUp 0.6s ease 0.5s both",
+              boxShadow: "0 0 0 1px rgba(108,99,255,0.5), 0 8px 32px rgba(108,99,255,0.3)"
+            }}
+          >
+            <span className="relative z-10 flex items-center gap-2">
+              Enter the Chat <span className="group-hover:translate-x-1 transition-transform">→</span>
+            </span>
+            {/* Hover state styling applied via global hover in tailwind, overriding shadow */}
+            <div className="absolute inset-0 bg-white/0 group-hover:bg-white/10 transition-colors" />
           </Link>
-          <button className="px-8 py-4 bg-black/20 hover:bg-black/40 text-white/80 rounded-full font-semibold transition-all active:scale-95 border border-white/[0.05] backdrop-blur-md">
-            View Architecture
-          </button>
         </div>
-      </main>
 
-      {/* 
-        4. FLOATING DEPTH ELEMENTS (The Spatial effect)
-        These smaller glass cards float in front of and behind the main window 
-        to create genuine 3D spatial tension.
-      */}
-      <div className="absolute top-[20%] left-[5%] md:left-[15%] z-20 w-48 p-4 bg-white/[0.05] backdrop-blur-3xl border border-white/[0.1] rounded-3xl shadow-[0_10px_30px_rgba(0,0,0,0.3),inset_0_1px_1px_rgba(255,255,255,0.2)] hidden lg:flex flex-col gap-3 animate-float-slow">
-        <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center">
-           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>
+        {/* Scroll Indicator */}
+        <div className="absolute bottom-10 flex flex-col items-center opacity-50 z-10">
+          <div className="w-[2px] h-[40px] bg-[var(--accent-primary)]/30 rounded-full relative overflow-hidden">
+            <div className="w-full h-1/2 bg-[var(--accent-primary)] absolute top-0 rounded-full" style={{ animation: "scrollDot 1.5s ease-in-out infinite" }} />
+          </div>
         </div>
-        <div className="w-full h-2 rounded-full bg-white/20" />
-        <div className="w-2/3 h-2 rounded-full bg-white/10" />
-      </div>
+      </section>
 
-      <div className="absolute bottom-[15%] right-[5%] md:right-[15%] z-0 w-56 p-5 bg-white/[0.02] backdrop-blur-[20px] border border-white/[0.05] rounded-3xl shadow-[0_10px_30px_rgba(0,0,0,0.5),inset_0_1px_1px_rgba(255,255,255,0.1)] hidden lg:flex flex-col gap-3 animate-float-medium">
-        <div className="flex items-center gap-2 mb-2">
-           <div className="w-2 h-2 rounded-full bg-green-400" />
-           <span className="text-xs font-medium text-white/60">Vector Sync</span>
+      {/* FEATURES SECTION */}
+      <section className="py-[120px] px-6 mx-auto max-w-[1100px] w-full">
+        
+        <div className="text-center mb-4">
+          <span className="font-[family-name:var(--font-mono)] text-[11px] text-[var(--accent-primary)] tracking-[0.15em] uppercase">
+            HOW IT WORKS
+          </span>
         </div>
-        <div className="w-full h-12 rounded-xl bg-white/5 border border-white/5" />
-      </div>
+        
+        <h2 className="text-center font-[family-name:var(--font-syne)] text-[36px] font-[700] text-[var(--text-primary)] mb-16">
+          Intelligence from your documents
+        </h2>
 
-      {/* Required CSS for the gentle spatial floating and pulsing */}
-      <style dangerouslySetInnerHTML={{__html: `
-        @keyframes pulse-slow {
-          0%, 100% { transform: scale(1) translate(0, 0); opacity: 0.8; }
-          50% { transform: scale(1.05) translate(20px, -20px); opacity: 1; }
-        }
-        .animate-pulse-slow {
-          animation: pulse-slow 8s ease-in-out infinite;
-        }
-        @keyframes float-slow {
-          0%, 100% { transform: translateY(0px); }
-          50% { transform: translateY(-15px); }
-        }
-        @keyframes float-medium {
-          0%, 100% { transform: translateY(0px); }
-          50% { transform: translateY(-10px); }
-        }
-        .animate-float-slow { animation: float-slow 6s ease-in-out infinite; }
-        .animate-float-medium { animation: float-medium 4.5s ease-in-out infinite; }
-      `}} />
-    </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          
+          {/* Card 1 */}
+          <div className="group relative bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-[var(--radius-lg)] p-[32px] overflow-hidden transition-all duration-300 hover:border-[var(--border-glow)] hover:-translate-y-1 hover:shadow-[var(--shadow-card),var(--glow-accent)]">
+            <div className="absolute top-0 left-[32px] right-[32px] h-[1px] opacity-0 group-hover:opacity-100 transition-opacity duration-300" style={{ background: "linear-gradient(to right, transparent, var(--accent-primary), transparent)" }} />
+            <div className="w-[48px] h-[48px] rounded-[var(--radius-md)] bg-[#6C63FF]/10 flex items-center justify-center mb-5">
+              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-[var(--accent-primary)]">
+                <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/>
+                <polyline points="14 2 14 8 20 8"/>
+              </svg>
+            </div>
+            <h3 className="font-semibold text-[17px] text-[var(--text-primary)] mb-2.5">Upload Any PDF</h3>
+            <p className="text-[14px] text-[var(--text-secondary)] font-[400] leading-[1.6]">
+              Drop in research papers, textbooks, contracts — any PDF instantly becomes queryable.
+            </p>
+          </div>
+
+          {/* Card 2 */}
+          <div className="group relative bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-[var(--radius-lg)] p-[32px] overflow-hidden transition-all duration-300 hover:border-[var(--border-glow)] hover:-translate-y-1 hover:shadow-[var(--shadow-card),var(--glow-accent)]">
+            <div className="absolute top-0 left-[32px] right-[32px] h-[1px] opacity-0 group-hover:opacity-100 transition-opacity duration-300" style={{ background: "linear-gradient(to right, transparent, var(--accent-primary), transparent)" }} />
+            <div className="w-[48px] h-[48px] rounded-[var(--radius-md)] bg-[#6C63FF]/10 flex items-center justify-center mb-5">
+              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-[var(--accent-primary)]">
+                <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
+              </svg>
+            </div>
+            <h3 className="font-semibold text-[17px] text-[var(--text-primary)] mb-2.5">Semantic Search</h3>
+            <p className="text-[14px] text-[var(--text-secondary)] font-[400] leading-[1.6]">
+              MMR retrieval finds the 4 most relevant, diverse chunks from your document automatically.
+            </p>
+          </div>
+
+          {/* Card 3 */}
+          <div className="group relative bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-[var(--radius-lg)] p-[32px] overflow-hidden transition-all duration-300 hover:border-[var(--border-glow)] hover:-translate-y-1 hover:shadow-[var(--shadow-card),var(--glow-accent)]">
+            <div className="absolute top-0 left-[32px] right-[32px] h-[1px] opacity-0 group-hover:opacity-100 transition-opacity duration-300" style={{ background: "linear-gradient(to right, transparent, var(--accent-primary), transparent)" }} />
+            <div className="w-[48px] h-[48px] rounded-[var(--radius-md)] bg-[#6C63FF]/10 flex items-center justify-center mb-5">
+              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-[var(--accent-primary)]">
+                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+              </svg>
+            </div>
+            <h3 className="font-semibold text-[17px] text-[var(--text-primary)] mb-2.5">Real-time Streaming</h3>
+            <p className="text-[14px] text-[var(--text-secondary)] font-[400] leading-[1.6]">
+              Answers stream token by token from Mistral AI — no waiting, no loading spinner.
+            </p>
+          </div>
+
+        </div>
+      </section>
+
+      {/* FINAL CTA SECTION */}
+      <section 
+        className="py-[80px] px-[40px] text-center border-y border-[var(--border-subtle)]"
+        style={{ background: "linear-gradient(135deg, rgba(108,99,255,0.08), rgba(108,99,255,0.03))" }}
+      >
+        <h2 className="font-[family-name:var(--font-syne)] text-[42px] font-[800] text-[var(--text-primary)] mb-8">
+          Ready to talk to your documents?
+        </h2>
+        <Link
+            href="/chat"
+            className="inline-flex px-10 py-4 rounded-full bg-[var(--accent-primary)] text-white text-[15px] font-[600] group relative overflow-hidden transition-all duration-200"
+            style={{ boxShadow: "0 0 0 1px rgba(108,99,255,0.5), 0 8px 32px rgba(108,99,255,0.3)" }}
+          >
+            <span className="relative z-10 flex items-center gap-2">
+              Open ScholarAI <span className="group-hover:translate-x-1 transition-transform">→</span>
+            </span>
+        </Link>
+      </section>
+
+      {/* FOOTER */}
+      <footer className="py-[32px] px-6 md:px-[40px] border-t border-[var(--border-subtle)] flex flex-col md:flex-row items-center justify-between gap-4">
+        <div className="flex items-center">
+          <span className="font-[family-name:var(--font-syne)] text-[16px] font-semibold text-[var(--text-primary)]">Scholar</span>
+          <span className="font-[family-name:var(--font-syne)] text-[16px] font-semibold text-[var(--accent-primary)]">AI</span>
+        </div>
+        <div className="font-[family-name:var(--font-mono)] text-[11px] text-[var(--text-tertiary)] text-center">
+          Built with MistralAI · ChromaDB · Next.js
+        </div>
+        <div className="font-[family-name:var(--font-mono)] text-[11px] text-[var(--text-tertiary)]">
+          © 2025
+        </div>
+      </footer>
+
+    </main>
   );
 }
