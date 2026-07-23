@@ -12,13 +12,10 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 app = FastAPI()
 
-# Allow both localhost and network IP to communicate with this backend
+# Allow all origins to communicate with this backend (for flexibility with Vercel and other deployments)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://192.168.167.133:3000"
-    ],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
