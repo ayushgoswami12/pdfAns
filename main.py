@@ -4,6 +4,8 @@ from langchain_mistralai import MistralAIEmbeddings
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_mistralai import ChatMistralAI
+from langchain_community.vectorstores import Pinecone as PineconeStore
+from langchain_pinecone import PineconeVectorStore as PineconeStore
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import Pinecone as PineconeStore
 from pinecone import Pinecone
