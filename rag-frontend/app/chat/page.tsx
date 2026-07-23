@@ -105,6 +105,7 @@ export default function ChatPage() {
     setMessages((prev) => [...prev, { role: "assistant", content: "" }]);
 
     try {
+      console.log("Sending request to:", `${API}/api/chat`);
       const formData = new FormData();
       formData.append("query", userMessage);
 
@@ -112,6 +113,13 @@ export default function ChatPage() {
         method: "POST",
         body: formData,
       });
+
+      console.log("Response status:", res.status, res.statusText);
+      if (!res.ok) {
+        const errorText = await res.text();
+        console.error("Error response:", errorText);
+        throw new Error(`HTTP error! status: ${res.status}, message: ${errorText}`);
+      }
 
       if (!res.body) throw new Error("No response body");
 
@@ -123,6 +131,7 @@ export default function ChatPage() {
         const { value, done } = await reader.read();
         if (done) break;
         const chunk = decoder.decode(value, { stream: true });
+        console.log("Received chunk:", chunk);
         setMessages((prev) => {
           const updated = [...prev];
           const last = updated.length - 1;
@@ -131,6 +140,7 @@ export default function ChatPage() {
         });
       }
     } catch (error) {
+      console.error("Send message error:", error);
       setIsTyping(false);
       setIsConnecting(false);
       setMessages((prev) => {
@@ -138,9 +148,7 @@ export default function ChatPage() {
         const last = updated.length - 1;
         updated[last] = { 
           role: "assistant", 
-          content: isConnecting 
-            ? "Server is waking up, please try again in a moment..." 
-            : "Connection interrupted. Please try again." 
+          content: `Error: ${error instanceof Error ? error.message : "Connection interrupted. Please try again."}` 
         };
         return updated;
       });
