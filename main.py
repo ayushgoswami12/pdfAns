@@ -1,19 +1,24 @@
+import os
 from dotenv import load_dotenv
 from langchain_mistralai import MistralAIEmbeddings
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_mistralai import ChatMistralAI
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_pinecone import PineconeVectorStore
-import os
+from langchain_community.vectorstores import Pinecone as PineconeStore
+from pinecone import Pinecone
 
 load_dotenv()
 
 embedding_model = MistralAIEmbeddings()
 
-vectorStore = PineconeVectorStore(
-    index_name=os.getenv("PINECONE_INDEX_NAME"),
+pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
+index = pc.Index(os.getenv("PINECONE_INDEX_NAME"))
+
+vectorStore = PineconeStore(
+    index=index,
     embedding=embedding_model,
+    text_key="text"
 )
 
 retriver = vectorStore.as_retriever(
@@ -28,11 +33,11 @@ retriver = vectorStore.as_retriever(
 llm = ChatMistralAI(model="mistral-small-2506")
 
 prompt = ChatPromptTemplate.from_messages([
-    ("system", "You are AI assistant, USE ONLY the provided context to answer the question. If you couldn't find the answer say 'could not find the answer in the provided material'."),
-    ("human", "Context : {context} Question : {question}")
+    ("system", "You are an AI assistant. USE ONLY the provided context to answer the question. If you couldn't find the answer say 'Could not find the answer in the provided material'."),
+    ("human", "Context: {context}\n\nQuestion: {question}")
 ])
 
-print("Rag System Created")
+print("RAG System Created")
 print("Press 0 to exit")
 
 if __name__ == "__main__":
@@ -44,4 +49,4 @@ if __name__ == "__main__":
         context = "\n\n".join([doc.page_content for doc in docs])
         new_prompt = prompt.invoke({"context": context, "question": query})
         response = llm.invoke(new_prompt)
-        print(f"\n AI: {response.content}")
+        print(f"\nAI: {response.content}")

@@ -3,7 +3,6 @@ uvicorn
 python-dotenv
 langchain
 langchain-mistralai
-langchain-pinecone
 langchain-community
 langchain-text-splitters
 langchain-core

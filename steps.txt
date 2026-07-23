@@ -22,3 +22,6 @@ Some Notes :
 to Run 2 terminals are needed 
 1. npm run dev (cd "rag-frontend")
 2. python server.py 
+
+
+USED PINECODE FOR VECTORDB 
