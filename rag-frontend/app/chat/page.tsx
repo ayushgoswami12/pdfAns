@@ -469,6 +469,7 @@ export default function ChatPage() {
               </button>
 
             </div>
+{/* pinecode adde  */}
           </div>
         </div>
       </main>
