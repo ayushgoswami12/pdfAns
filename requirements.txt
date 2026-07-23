@@ -6,6 +6,7 @@ langchain-mistralai
 langchain-community
 langchain-text-splitters
 langchain-core
+langchain-pinecone
 pinecone-client
 pypdf
 python-multipart
