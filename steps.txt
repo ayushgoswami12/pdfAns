@@ -18,3 +18,7 @@ Some Notes :
 4. Retrivers are of 2 types 
         - by data sources (wikipedia , arvix etc)   refer = "arvix01.py"
         - by Retriver strategy ()
+
+to Run 2 terminals are needed 
+1. npm run dev (cd "rag-frontend")
+2. python server.py 
