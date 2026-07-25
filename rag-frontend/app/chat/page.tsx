@@ -3,9 +3,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import Link from "next/link";
 
-// Falls back to the deployed backend if the env var isn't set, so this still
-// works out of the box — but set NEXT_PUBLIC_API_URL in .env.local / your
-// hosting provider for real deployments instead of relying on the fallback.
 const API = process.env.NEXT_PUBLIC_API_URL ?? "https://scholarai-tswp.onrender.com";
 
 type Role = "user" | "assistant";
@@ -28,7 +25,7 @@ interface Toast {
   type: "success" | "error" | "info";
 }
 
-// ---- Icons (single source of truth so every usage stays visually consistent) ----
+// ---- Icons ----
 function IconDiamond({ className = "" }: { className?: string }) {
   return (
     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
@@ -128,17 +125,11 @@ function formatFileSize(bytes: number): string {
     : `${(bytes / 1024).toFixed(0)} KB`;
 }
 
-// Shared class strings so repeated combos (icon buttons, panel buttons, etc.)
-// can't silently drift out of alignment with each other.
 const ICON_BTN =
-  "flex items-center justify-center rounded-xl transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed";
+  "flex items-center justify-center rounded-xl transition-all duration-200 active:scale-90 disabled:opacity-50 disabled:cursor-not-allowed";
 const PANEL_BTN =
-  "w-full flex items-center justify-center gap-2 py-3.5 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] text-[var(--text-secondary)] text-[13px] font-medium transition-colors hover:bg-[var(--bg-panel-hover)] disabled:opacity-50 disabled:cursor-not-allowed";
+  "w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl border border-gray-200/60 bg-white/50 backdrop-blur-sm text-gray-700 text-[13px] font-medium transition-all duration-200 hover:bg-white hover:shadow-[0_2px_10px_rgba(0,0,0,0.04)] disabled:opacity-50 disabled:cursor-not-allowed shadow-sm";
 
-// NOTE: chat history is placeholder/demo data — the backend has no
-// conversation-persistence endpoint yet. Wire this up to a real
-// GET /api/chats (and load its messages on click) before shipping;
-// until then this only simulates a click for UI-review purposes.
 const DEMO_CHAT_HISTORY: ChatHistoryItem[] = [
   { id: 1, title: "Understanding Machine Learning", date: "Today" },
   { id: 2, title: "Data processing pipelines", date: "Yesterday" },
@@ -176,7 +167,6 @@ export default function ChatPage() {
     };
   }, [isSidebarOpen]);
 
-  // Typewriter intro on the empty state only.
   useEffect(() => {
     if (messages.length > 0) return;
     const fullText = "What do you want to explore today?";
@@ -186,11 +176,10 @@ export default function ChatPage() {
       i++;
       setWelcomeText(fullText.slice(0, i));
       if (i >= fullText.length) clearInterval(interval);
-    }, 50);
+    }, 45);
     return () => clearInterval(interval);
   }, [messages.length]);
 
-  // Auto-grow the composer as the user types, capped by max-h in the className.
   useEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
@@ -207,7 +196,7 @@ export default function ChatPage() {
   const showToast = useCallback((message: string, type: Toast["type"] = "success") => {
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     setToast({ show: true, message, type });
-    toastTimerRef.current = setTimeout(() => setToast((t) => ({ ...t, show: false })), 3000);
+    toastTimerRef.current = setTimeout(() => setToast((t) => ({ ...t, show: false })), 3500);
   }, []);
 
   const handleNewChat = () => {
@@ -220,7 +209,6 @@ export default function ChatPage() {
   const handleLoadHistory = (chatId: number, title: string) => {
     setActiveChatId(chatId);
     setIsSidebarOpen(false);
-    // Placeholder content — see DEMO_CHAT_HISTORY note above.
     setMessages([
       { role: "user", content: `Explain ${title}` },
       { role: "assistant", content: `This is placeholder history for "${title}". Connect this view to a real backend endpoint before shipping.` },
@@ -310,7 +298,7 @@ export default function ChatPage() {
       if (!res.ok) throw new Error();
       showToast(`Deleted ${nameToRemove}`, "info");
     } catch {
-      setSources(previous); // roll back the optimistic update
+      setSources(previous); 
       showToast(`Failed to delete ${nameToRemove}`, "error");
     }
   };
@@ -325,31 +313,37 @@ export default function ChatPage() {
   const canSend = input.trim().length > 0 && !isTyping && !isConnecting;
 
   return (
-    <div className="flex h-[100dvh] w-full overflow-hidden bg-[var(--bg-app)] text-[var(--text-primary)] relative antialiased">
+    <div className="flex h-[100dvh] w-full overflow-hidden bg-[#FCFCFD] text-gray-900 relative antialiased selection:bg-red-200 selection:text-red-900">
+      
+      {/* Dynamic Background Pattern for depth */}
+      <div className="absolute inset-0 z-0 pointer-events-none" 
+           style={{ backgroundImage: 'radial-gradient(circle at 1px 1px, rgba(220, 38, 38, 0.05) 1px, transparent 0)', backgroundSize: '40px 40px' }} 
+      />
+
       {/* Toast Notification */}
       {toast.show && (
         <div
           role="status"
           aria-live="polite"
-          className="absolute top-6 left-1/2 -translate-x-1/2 z-[70] flex items-center gap-3 px-5 py-3.5 max-w-[90vw] rounded-full shadow-2xl bg-[var(--bg-panel)] border border-white/5 animate-in fade-in slide-in-from-top-4 duration-300"
+          className="absolute top-8 left-1/2 -translate-x-1/2 z-[70] flex items-center gap-3 px-6 py-4 max-w-[90vw] rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.08)] bg-white/90 backdrop-blur-md border border-gray-100 animate-in fade-in slide-in-from-top-6 duration-400"
           style={{
             color:
               toast.type === "success"
-                ? "var(--status-success)"
+                ? "#059669"
                 : toast.type === "info"
-                ? "var(--status-info)"
-                : "var(--status-error)",
+                ? "#2563eb"
+                : "#dc2626",
           }}
         >
-          <div className="w-2.5 h-2.5 rounded-full shrink-0 animate-pulse bg-current" />
-          <span className="text-[14px] font-semibold tracking-wide truncate">{toast.message}</span>
+          <div className="w-2.5 h-2.5 rounded-full shrink-0 animate-pulse bg-current shadow-[0_0_8px_currentColor]" />
+          <span className="text-[14px] font-medium tracking-wide truncate text-gray-800">{toast.message}</span>
         </div>
       )}
 
       {/* Mobile Sidebar Overlay */}
       {isSidebarOpen && (
         <div
-          className="fixed inset-0 z-40 md:hidden bg-black/85 backdrop-blur-sm animate-in fade-in duration-300"
+          className="fixed inset-0 z-40 md:hidden bg-gray-900/20 backdrop-blur-sm animate-in fade-in duration-300"
           onClick={() => setIsSidebarOpen(false)}
           aria-hidden="true"
         />
@@ -357,28 +351,28 @@ export default function ChatPage() {
 
       {/* SIDEBAR */}
       <aside
-        className={`fixed md:relative top-0 left-0 h-full z-50 w-[85%] max-w-[320px] md:max-w-none md:w-[300px] flex flex-col shrink-0 px-5 py-6 bg-[var(--bg-sidebar)] border-r border-[var(--border-subtle)] transition-transform duration-300 ease-in-out ${
+        className={`fixed md:relative top-0 left-0 h-full z-50 w-[85%] max-w-[320px] md:max-w-none md:w-[320px] flex flex-col shrink-0 px-6 py-8 bg-[#F8F9FA]/90 backdrop-blur-xl border-r border-gray-200/60 transition-transform duration-400 ease-[cubic-bezier(0.16,1,0.3,1)] ${
           isSidebarOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
         }`}
       >
         {/* Logo Header */}
-        <div className="flex items-center justify-between mb-8 pl-2">
-          <div className="flex items-center gap-3 tracking-tight select-none">
+        <div className="flex items-center justify-between mb-10 pl-1">
+          <div className="flex items-center gap-3.5 tracking-tight select-none">
             <div
-              className="w-8 h-8 rounded-lg flex items-center justify-center text-white shrink-0"
-              style={{ background: "linear-gradient(135deg, var(--brand-from) 0%, var(--brand-to) 100%)" }}
+              className="w-9 h-9 rounded-xl flex items-center justify-center text-white shrink-0 shadow-[0_4px_12px_rgba(220,38,38,0.25)] ring-1 ring-red-500/20"
+              style={{ background: "linear-gradient(135deg, #FF3366 0%, #CC0000 100%)" }}
             >
-              <IconDiamond />
+              <IconDiamond className="w-4.5 h-4.5" />
             </div>
             <div className="flex flex-col leading-tight">
-              <span className="font-brand text-[15px] font-bold tracking-wide text-white">SCHOLAR AI</span>
-              <span className="text-[10px] font-medium text-[var(--text-muted)]">Smart. Powerful. Limitless.</span>
+              <span className="font-brand text-[16px] font-bold tracking-wide text-gray-900">SCHOLAR AI</span>
+              <span className="text-[11px] font-medium text-gray-400 tracking-wider uppercase mt-0.5">Limitless</span>
             </div>
           </div>
           <button
             onClick={() => setIsSidebarOpen(false)}
             aria-label="Close sidebar"
-            className={`${ICON_BTN} md:hidden w-8 h-8 bg-transparent text-[var(--text-muted)] hover:text-white`}
+            className={`${ICON_BTN} md:hidden w-8 h-8 bg-white shadow-sm border border-gray-100 text-gray-400 hover:text-gray-800 hover:bg-gray-50`}
           >
             <IconClose />
           </button>
@@ -388,45 +382,44 @@ export default function ChatPage() {
         <div className="mb-8">
           <button
             onClick={handleNewChat}
-            className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl text-white text-[14px] font-semibold tracking-wide transition-opacity hover:opacity-90 active:scale-[0.98]"
-            style={{
-              background: "linear-gradient(90deg, var(--accent-purple) 0%, var(--accent-blue) 100%)",
-              boxShadow: "0 4px 20px rgba(42,139,242,0.25)",
-            }}
+            className="w-full flex items-center justify-center gap-2.5 py-4 rounded-2xl text-white text-[14px] font-semibold tracking-wide transition-all duration-300 hover:scale-[1.02] active:scale-95 shadow-[0_8px_20px_rgba(220,38,38,0.25)] hover:shadow-[0_12px_24px_rgba(220,38,38,0.35)]"
+            style={{ background: "linear-gradient(135deg, #FF3366 0%, #CC0000 100%)" }}
           >
             <IconPlus />
             <span>New Chat</span>
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto custom-scrollbar flex flex-col gap-6 -mx-2 px-2">
+        <div className="flex-1 overflow-y-auto custom-scrollbar flex flex-col gap-8 -mx-2 px-2">
           {/* Knowledge Base */}
           <div>
             <button
               onClick={() => setIsDropdownOpen((v) => !v)}
               aria-expanded={isDropdownOpen}
-              className="flex items-center justify-between w-full py-1 select-none bg-transparent border-none cursor-pointer"
+              className="flex items-center justify-between w-full py-1.5 select-none bg-transparent border-none cursor-pointer group"
             >
-              <span className="text-[12px] font-semibold tracking-wide text-[var(--text-secondary)]">Knowledge Base</span>
+              <span className="text-[11px] font-bold tracking-[0.1em] uppercase text-gray-400 group-hover:text-gray-600 transition-colors">Knowledge Base</span>
               <IconChevronDown
-                className={`text-[var(--text-muted)] transition-transform duration-300 ${isDropdownOpen ? "rotate-180" : "rotate-0"}`}
+                className={`text-gray-300 transition-transform duration-300 ${isDropdownOpen ? "rotate-180" : "rotate-0"} group-hover:text-gray-500`}
               />
             </button>
 
             {isDropdownOpen && (
-              <div className="mt-3 space-y-1 animate-in fade-in slide-in-from-top-2 duration-300">
+              <div className="mt-3 space-y-1.5 animate-in fade-in slide-in-from-top-2 duration-300">
                 {sources.length === 0 ? (
-                  <p className="text-[13px] py-2 px-2 m-0 text-[var(--text-faint)]">No documents uploaded.</p>
+                  <p className="text-[13px] py-2 px-2 m-0 text-gray-400 italic">No documents uploaded.</p>
                 ) : (
                   sources.map((source) => (
                     <div
                       key={source.name}
-                      className="relative group flex items-center gap-3 py-2.5 px-3 rounded-xl cursor-pointer hover:bg-[var(--bg-hover)] transition-colors"
+                      className="relative group flex items-center gap-3.5 py-3 px-3.5 rounded-2xl cursor-pointer hover:bg-white hover:shadow-[0_4px_12px_rgba(0,0,0,0.03)] border border-transparent hover:border-gray-200/50 transition-all duration-200"
                     >
-                      <IconFile className="text-[var(--accent-blue)] shrink-0" />
+                      <div className="w-8 h-8 rounded-full bg-red-50 flex items-center justify-center shrink-0">
+                        <IconFile className="text-red-500 w-4 h-4" />
+                      </div>
                       <div className="flex-1 min-w-0 pr-8">
-                        <p className="truncate text-[13px] font-medium m-0 text-[var(--text-secondary)]">{source.name}</p>
-                        <p className="truncate text-[11px] m-0 text-[var(--text-faint)]">{source.size}</p>
+                        <p className="truncate text-[13.5px] font-medium m-0 text-gray-800">{source.name}</p>
+                        <p className="truncate text-[11px] mt-0.5 m-0 text-gray-400">{source.size}</p>
                       </div>
                       <button
                         onClick={(e) => {
@@ -434,7 +427,7 @@ export default function ChatPage() {
                           handleRemoveSource(source.name);
                         }}
                         aria-label={`Remove ${source.name}`}
-                        className="absolute right-3 w-7 h-7 rounded-lg flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity active:scale-95 bg-rose-500/10 text-[var(--status-error)] border-none cursor-pointer"
+                        className="absolute right-3.5 w-8 h-8 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-200 hover:scale-105 active:scale-95 bg-white shadow-sm border border-gray-100 text-red-500 hover:text-red-600 cursor-pointer"
                       >
                         <IconTrash />
                       </button>
@@ -447,24 +440,24 @@ export default function ChatPage() {
 
           {/* Recent Chats */}
           <div>
-            <p className="text-[12px] font-semibold tracking-wide mb-3 m-0 select-none text-[var(--text-secondary)]">Chat History</p>
-            <div className="space-y-1">
+            <p className="text-[11px] font-bold tracking-[0.1em] uppercase mb-3.5 m-0 select-none text-gray-400 pl-1">Chat History</p>
+            <div className="space-y-1.5">
               {DEMO_CHAT_HISTORY.map((chat) => {
                 const active = activeChatId === chat.id;
                 return (
                   <button
                     key={chat.id}
                     onClick={() => handleLoadHistory(chat.id, chat.title)}
-                    className={`w-full flex items-start gap-3 py-3 px-3 text-left rounded-xl transition-colors border-none cursor-pointer ${
-                      active ? "bg-[var(--bg-hover)]" : "bg-transparent hover:bg-[var(--bg-hover)]"
+                    className={`w-full flex items-start gap-3.5 py-3.5 px-3.5 text-left rounded-2xl transition-all duration-200 border cursor-pointer ${
+                      active ? "bg-white border-gray-200/60 shadow-[0_2px_8px_rgba(0,0,0,0.04)]" : "bg-transparent border-transparent hover:bg-white/50 hover:border-gray-200/30"
                     }`}
                   >
-                    <IconMessage className={`shrink-0 mt-0.5 ${active ? "text-[var(--accent-purple)]" : "text-[var(--text-faint)]"}`} />
+                    <IconMessage className={`shrink-0 mt-0.5 ${active ? "text-red-500" : "text-gray-300"}`} />
                     <div className="flex-1 min-w-0">
-                      <p className={`truncate text-[13px] font-medium m-0 ${active ? "text-white" : "text-[var(--text-tertiary)]"}`}>
+                      <p className={`truncate text-[13.5px] font-medium m-0 ${active ? "text-gray-900" : "text-gray-600"}`}>
                         {chat.title}
                       </p>
-                      <p className="text-[11px] mt-1 m-0 text-[var(--text-faint)]">{chat.date}</p>
+                      <p className={`text-[11px] mt-1 m-0 ${active ? "text-red-400/80" : "text-gray-400"}`}>{chat.date}</p>
                     </div>
                   </button>
                 );
@@ -474,38 +467,39 @@ export default function ChatPage() {
         </div>
 
         {/* Upload Button */}
-        <div className="mt-6 pt-6 hidden md:block border-t border-[var(--border-subtle)]">
+        <div className="mt-6 pt-6 hidden md:block relative z-10">
           <button onClick={() => fileInputRef.current?.click()} disabled={isUploading} className={PANEL_BTN}>
             {isUploading ? (
-              <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+              <span className="w-4 h-4 border-2 border-gray-300 border-t-red-500 rounded-full animate-spin" />
             ) : (
-              <IconUpload />
+              <IconUpload className="text-gray-500 group-hover:text-red-500 transition-colors" />
             )}
-            <span>Upload Document</span>
+            <span className="text-gray-700">Upload Document</span>
           </button>
         </div>
       </aside>
 
       {/* MAIN CHAT AREA */}
-      <main className="flex-1 flex flex-col min-w-0 relative bg-[var(--bg-app)]">
-        {/* Header */}
-        <header className="h-[72px] flex items-center justify-between px-6 sm:px-8 shrink-0 z-10 sticky top-0 bg-[var(--bg-app)] border-b border-[var(--border-subtle)]">
+      <main className="flex-1 flex flex-col min-w-0 relative z-10">
+        
+        {/* Glassmorphic Header */}
+        <header className="h-[76px] flex items-center justify-between px-6 sm:px-10 shrink-0 z-30 sticky top-0 bg-white/70 backdrop-blur-xl border-b border-gray-200/50">
           <div className="flex items-center gap-4">
             <button
               onClick={() => setIsSidebarOpen(true)}
               aria-label="Open sidebar"
-              className={`${ICON_BTN} md:hidden w-10 h-10 bg-[var(--bg-panel)] border border-[var(--border-subtle)] text-[var(--text-tertiary)]`}
+              className={`${ICON_BTN} md:hidden w-10 h-10 bg-white shadow-sm border border-gray-100 text-gray-600`}
             >
               <IconMenu />
             </button>
-            <div className="flex items-center gap-2.5">
+            <div className="flex items-center gap-3">
               <div
-                className="w-7 h-7 rounded-md flex items-center justify-center text-white shrink-0"
-                style={{ background: "linear-gradient(135deg, var(--brand-from) 0%, var(--brand-to) 100%)" }}
+                className="w-8 h-8 rounded-xl flex items-center justify-center text-white shrink-0 shadow-[0_2px_8px_rgba(220,38,38,0.2)]"
+                style={{ background: "linear-gradient(135deg, #FF3366 0%, #CC0000 100%)" }}
               >
-                <IconDiamond className="w-3.5 h-3.5" />
+                <IconDiamond className="w-4 h-4" />
               </div>
-              <span className="text-[14px] font-medium text-[var(--text-secondary)] hidden sm:inline">{greeting}</span>
+              <span className="text-[14.5px] font-medium text-gray-800 hidden sm:inline tracking-tight">{greeting}</span>
             </div>
           </div>
 
@@ -514,7 +508,7 @@ export default function ChatPage() {
               href="/"
               title="Back to Home"
               aria-label="Back to home"
-              className="flex items-center justify-center w-10 h-10 rounded-full bg-[var(--bg-panel)] text-[var(--text-tertiary)] hover:text-white transition-colors"
+              className="flex items-center justify-center w-10 h-10 rounded-full bg-white border border-gray-100 shadow-sm text-gray-400 hover:text-red-600 hover:border-red-100 hover:shadow-[0_2px_8px_rgba(220,38,38,0.1)] transition-all duration-300"
             >
               <IconHome />
             </Link>
@@ -522,85 +516,86 @@ export default function ChatPage() {
         </header>
 
         {/* Chat Messages */}
-        <div className="flex-1 overflow-y-auto px-4 sm:px-8 custom-scrollbar flex flex-col pt-6 pb-2">
+        <div className="flex-1 overflow-y-auto px-4 sm:px-10 custom-scrollbar flex flex-col pt-8 pb-4">
           {messages.length === 0 ? (
-            <div className="flex-1 flex flex-col items-start justify-center animate-in fade-in duration-700 max-w-4xl mx-auto w-full px-2 sm:px-4 py-10">
-              <h1 className="font-brand text-3xl sm:text-4xl font-semibold mb-3 tracking-tight text-white m-0 min-h-[1.2em]">
+            <div className="flex-1 flex flex-col items-center justify-center animate-in fade-in duration-1000 max-w-2xl mx-auto w-full px-4 text-center pb-20">
+              <div className="w-20 h-20 mb-8 rounded-3xl flex items-center justify-center shadow-[0_8px_32px_rgba(220,38,38,0.15)] ring-1 ring-red-500/10 bg-gradient-to-br from-white to-red-50">
+                <IconDiamond className="w-10 h-10 text-red-500" />
+              </div>
+              <h1 className="font-brand text-4xl sm:text-5xl font-bold mb-4 tracking-tight min-h-[1.2em] text-transparent bg-clip-text bg-gradient-to-r from-gray-900 via-red-800 to-red-600">
                 {welcomeText}
               </h1>
-              <p className="text-[16px] mt-2 font-medium text-[var(--text-faint)]">
-                Upload a PDF from the sidebar to begin analyzing documents.
+              <p className="text-[17px] mt-2 font-medium text-gray-500 max-w-md leading-relaxed">
+                Upload a document from the sidebar to begin analyzing, or just start typing to explore.
               </p>
             </div>
           ) : (
-            <div className="w-full max-w-4xl mx-auto py-4 space-y-8">
+            <div className="w-full max-w-4xl mx-auto py-4 space-y-10">
               {messages.map((msg, idx) => (
                 <div
                   key={idx}
-                  className={`flex w-full animate-in fade-in slide-in-from-bottom-2 duration-300 ${
+                  className={`flex w-full animate-in fade-in slide-in-from-bottom-3 duration-400 ${
                     msg.role === "user" ? "justify-end" : "justify-start"
                   }`}
                 >
                   {msg.role === "user" ? (
                     <div
-                      className="px-6 py-4 whitespace-pre-wrap break-words text-[15px] leading-relaxed max-w-[85%] sm:max-w-[75%] rounded-[18px] rounded-br-sm font-normal text-white"
-                      style={{
-                        background: "linear-gradient(90deg, #42277E 0%, #2974D6 100%)",
-                        boxShadow: "0 4px 15px rgba(0,0,0,0.2)",
-                      }}
+                      className="px-6 py-4 whitespace-pre-wrap break-words text-[15.5px] leading-relaxed max-w-[85%] sm:max-w-[75%] rounded-[24px] rounded-br-sm font-normal text-white shadow-[0_8px_24px_rgba(220,38,38,0.25)] ring-1 ring-white/20"
+                      style={{ background: "linear-gradient(135deg, #FF3366 0%, #CC0000 100%)" }}
                     >
                       {msg.content}
                     </div>
                   ) : (
-                    <div
-                      className="px-6 py-5 whitespace-pre-wrap break-words text-[15px] leading-relaxed max-w-[95%] sm:max-w-[85%] rounded-[18px] rounded-bl-sm font-normal bg-[var(--bg-panel-hover)] text-[var(--text-secondary)]"
-                      style={{ boxShadow: "0 4px 15px rgba(0,0,0,0.2)" }}
-                    >
-                      {msg.content ? (
-                        msg.content
-                      ) : isConnecting && idx === messages.length - 1 ? (
-                        <div className="flex items-center gap-3 h-6 text-[var(--text-faint)]">
-                          <span
-                            className="w-4 h-4 rounded-full animate-spin border-2 border-white/10"
-                            style={{ borderTopColor: "var(--accent-purple)" }}
-                          />
-                          <span className="animate-pulse text-[14px]">Generating response...</span>
-                        </div>
-                      ) : isTyping && idx === messages.length - 1 ? (
-                        <div className="flex items-center gap-1.5 h-6">
-                          <span className="w-2 h-2 rounded-full animate-bounce bg-[var(--accent-purple)] [animation-delay:0ms]" />
-                          <span className="w-2 h-2 rounded-full animate-bounce bg-[var(--accent-purple)] [animation-delay:150ms]" />
-                          <span className="w-2 h-2 rounded-full animate-bounce bg-[var(--accent-purple)] [animation-delay:300ms]" />
-                        </div>
-                      ) : null}
+                    <div className="flex gap-4 max-w-[95%] sm:max-w-[85%]">
+                      <div className="w-8 h-8 rounded-full shrink-0 flex items-center justify-center bg-gradient-to-br from-red-50 to-white border border-red-100 shadow-sm mt-1">
+                        <IconDiamond className="w-4 h-4 text-red-500" />
+                      </div>
+                      <div
+                        className="px-6 py-5 whitespace-pre-wrap break-words text-[15.5px] leading-relaxed rounded-[24px] rounded-tl-sm font-normal bg-white text-gray-800 border border-gray-100/80 shadow-[0_4px_20px_rgba(0,0,0,0.03)]"
+                      >
+                        {msg.content ? (
+                          msg.content
+                        ) : isConnecting && idx === messages.length - 1 ? (
+                          <div className="flex items-center gap-3 h-6 text-gray-400">
+                            <span className="w-4 h-4 rounded-full animate-spin border-2 border-gray-200 border-t-red-500" />
+                            <span className="animate-pulse text-[14.5px]">Thinking...</span>
+                          </div>
+                        ) : isTyping && idx === messages.length - 1 ? (
+                          <div className="flex items-center gap-1.5 h-6">
+                            <span className="w-2 h-2 rounded-full animate-bounce bg-red-400 [animation-delay:0ms]" />
+                            <span className="w-2 h-2 rounded-full animate-bounce bg-red-400 [animation-delay:150ms]" />
+                            <span className="w-2 h-2 rounded-full animate-bounce bg-red-400 [animation-delay:300ms]" />
+                          </div>
+                        ) : null}
+                      </div>
                     </div>
                   )}
                 </div>
               ))}
-              <div ref={bottomRef} className="h-4" />
+              <div ref={bottomRef} className="h-6" />
             </div>
           )}
         </div>
 
         {/* Input Area */}
-        <div
-          className="w-full px-4 sm:px-8 pb-8 pt-4 shrink-0 z-20"
-          style={{ background: "linear-gradient(to top, var(--bg-app) 60%, transparent)" }}
-        >
-          <div className="max-w-4xl mx-auto relative">
+        <div className="w-full px-4 sm:px-10 pb-8 pt-6 shrink-0 z-20 relative">
+          
+          {/* Gradient fade overlay for smooth scrolling effect */}
+          <div className="absolute top-0 left-0 w-full h-12 -mt-12 bg-gradient-to-t from-[#FCFCFD] to-transparent pointer-events-none" />
+
+          <div className="max-w-4xl mx-auto relative group">
             <div
-              className="flex items-end gap-3 rounded-[28px] p-1.5 sm:p-2 border border-[var(--border-input)] bg-[var(--bg-panel)] transition-all duration-300"
-              style={{ boxShadow: "0 10px 40px rgba(0,0,0,0.4)" }}
+              className="flex items-end gap-3 rounded-[32px] p-2 bg-white/80 backdrop-blur-xl border border-gray-200/80 transition-all duration-300 focus-within:border-red-300 focus-within:ring-4 focus-within:ring-red-500/10 focus-within:bg-white shadow-[0_8px_30px_rgba(0,0,0,0.06)] hover:shadow-[0_8px_30px_rgba(0,0,0,0.08)]"
             >
               <button
                 onClick={() => fileInputRef.current?.click()}
                 disabled={isUploading}
                 title="Upload PDF"
                 aria-label="Upload PDF"
-                className={`${ICON_BTN} mb-0.5 w-10 h-10 shrink-0 bg-transparent text-[var(--text-faint)] hover:text-white hover:bg-white/5`}
+                className={`${ICON_BTN} mb-1 ml-1 w-11 h-11 shrink-0 rounded-full bg-gray-50 text-gray-400 hover:text-red-500 hover:bg-red-50 border border-transparent transition-colors`}
               >
                 {isUploading ? (
-                  <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                  <span className="w-4.5 h-4.5 border-2 border-gray-300 border-t-red-500 rounded-full animate-spin" />
                 ) : (
                   <IconClip />
                 )}
@@ -613,9 +608,9 @@ export default function ChatPage() {
                 onKeyDown={handleComposerKeyDown}
                 onCompositionStart={() => (isComposingRef.current = true)}
                 onCompositionEnd={() => (isComposingRef.current = false)}
-                placeholder="Type your message here..."
+                placeholder="Message ScholarAI..."
                 aria-label="Message ScholarAI"
-                className="flex-1 resize-none custom-scrollbar text-[15px] py-2.5 min-h-[44px] max-h-[150px] font-normal outline-none mt-0.5 bg-transparent border-none text-white"
+                className="flex-1 resize-none custom-scrollbar text-[15.5px] py-3.5 min-h-[50px] max-h-[200px] font-medium outline-none bg-transparent border-none text-gray-800 placeholder:text-gray-400 leading-relaxed"
                 rows={1}
               />
 
@@ -624,17 +619,19 @@ export default function ChatPage() {
                 disabled={!canSend}
                 title="Send message"
                 aria-label="Send message"
-                className={`mb-0.5 mr-0.5 w-10 h-10 shrink-0 rounded-full flex items-center justify-center transition-all duration-300 disabled:opacity-30 disabled:cursor-not-allowed border-none ${
-                  canSend ? "bg-[var(--accent-blue)] text-white cursor-pointer" : "bg-transparent text-[var(--text-faint)]"
+                className={`mb-1 mr-1 w-11 h-11 shrink-0 rounded-full flex items-center justify-center transition-all duration-300 disabled:opacity-40 disabled:cursor-not-allowed border-none shadow-sm ${
+                  canSend 
+                    ? "bg-gradient-to-r from-red-600 to-red-500 text-white cursor-pointer hover:shadow-[0_4px_16px_rgba(220,38,38,0.4)] hover:scale-105 active:scale-95" 
+                    : "bg-gray-100 text-gray-300"
                 }`}
               >
                 <IconSend className={canSend ? "translate-x-[1px]" : ""} />
               </button>
             </div>
 
-            <div className="text-center mt-3 select-none">
-              <span className="text-[12px] font-medium text-[var(--text-faint)]">
-                Scholar AI can make mistakes. Consider checking important information.
+            <div className="text-center mt-4 select-none">
+              <span className="text-[12.5px] font-medium text-gray-400">
+                Scholar AI is an advanced model and may occasionally make mistakes. Verification is recommended.
               </span>
             </div>
           </div>
