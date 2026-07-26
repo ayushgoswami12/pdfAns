@@ -3,7 +3,28 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import Link from "next/link";
 
-const API = process.env.NEXT_PUBLIC_API_URL ?? "https://scholarai-tswp.onrender.com";
+// Two possible backends: your local dev server and the deployed Render
+// instance. Instead of hardcoding one, we probe localhost briefly on page
+// load and use it if it responds; otherwise we fall back to Render.
+// Set NEXT_PUBLIC_API_URL to force a specific backend and skip probing
+// entirely (useful for production builds).
+const RENDER_API = "https://scholarai-tswp.onrender.com";
+const LOCAL_API = "http://localhost:8000";
+const FORCED_API = process.env.NEXT_PUBLIC_API_URL;
+
+async function detectApiBase(): Promise<string> {
+  if (FORCED_API) return FORCED_API;
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 900);
+    const res = await fetch(`${LOCAL_API}/`, { signal: controller.signal, mode: "cors" });
+    clearTimeout(timeout);
+    if (res.ok) return LOCAL_API;
+  } catch {
+    // Local backend not reachable — fall through to Render.
+  }
+  return RENDER_API;
+}
 
 type Role = "user" | "assistant";
 interface ChatMessage {
@@ -150,6 +171,9 @@ export default function ChatPage() {
   const [toast, setToast] = useState<Toast>({ show: false, message: "", type: "success" });
   const [sources, setSources] = useState<Source[]>([]);
   const [greeting] = useState(getGreeting);
+  const [apiBase, setApiBase] = useState<string>(RENDER_API);
+  const [apiBaseLabel, setApiBaseLabel] = useState<"local" | "render">("render");
+  const [apiBaseReady, setApiBaseReady] = useState(false);
 
   const [showWelcomeModal, setShowWelcomeModal] = useState(true);
 
@@ -158,6 +182,29 @@ export default function ChatPage() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isComposingRef = useRef(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    detectApiBase().then((base) => {
+      if (cancelled) return;
+      setApiBase(base);
+      setApiBaseLabel(base === LOCAL_API ? "local" : "render");
+      setApiBaseReady(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Manual override in case auto-detection guesses wrong (e.g. local
+  // server up but briefly slow to respond on the first probe).
+  const toggleApiBase = useCallback(() => {
+    setApiBase((prev) => {
+      const next = prev === LOCAL_API ? RENDER_API : LOCAL_API;
+      setApiBaseLabel(next === LOCAL_API ? "local" : "render");
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -231,7 +278,7 @@ export default function ChatPage() {
     try {
       const formData = new FormData();
       formData.append("query", userMessage);
-      const res = await fetch(`${API}/api/chat`, { method: "POST", body: formData });
+      const res = await fetch(`${apiBase}/api/chat`, { method: "POST", body: formData });
 
       if (!res.ok) {
         const errorText = await res.text();
@@ -280,7 +327,7 @@ export default function ChatPage() {
     formData.append("file", file);
 
     const xhr = new XMLHttpRequest();
-    xhr.open("POST", `${API}/api/upload`, true);
+    xhr.open("POST", `${apiBase}/api/upload`, true);
 
     // Track the upload progress
     xhr.upload.onprogress = (event) => {
@@ -319,7 +366,7 @@ export default function ChatPage() {
     try {
       const formData = new FormData();
       formData.append("filename", nameToRemove);
-      const res = await fetch(`${API}/api/delete`, { method: "POST", body: formData });
+      const res = await fetch(`${apiBase}/api/delete`, { method: "POST", body: formData });
       if (!res.ok) throw new Error();
       showToast(`Deleted ${nameToRemove}`, "info");
     } catch {
@@ -602,6 +649,24 @@ export default function ChatPage() {
           </div>
 
           <div className="flex items-center gap-3">
+            {!FORCED_API && (
+              <button
+                onClick={toggleApiBase}
+                title="Click to switch backend (auto-detected on load)"
+                className={`hidden sm:flex items-center gap-2 px-3 h-8 rounded-full text-[11px] font-semibold tracking-wide border transition-colors ${
+                  apiBaseLabel === "local"
+                    ? "bg-emerald-50 border-emerald-200 text-emerald-600"
+                    : "bg-blue-50 border-blue-200 text-blue-600"
+                }`}
+              >
+                <span
+                  className={`w-1.5 h-1.5 rounded-full ${
+                    apiBaseReady ? "animate-none" : "animate-pulse"
+                  } bg-current`}
+                />
+                {apiBaseLabel === "local" ? "Local" : "Render"}
+              </button>
+            )}
             <Link
               href="/"
               title="Back to Home"
