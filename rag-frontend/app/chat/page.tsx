@@ -26,9 +26,9 @@ interface Toast {
 }
 
 // ---- Icons ----
-function IconDiamond({ className = "" }: { className?: string }) {
+function IconDiamond({ className = "", width = 18, height = 18 }: any) {
   return (
-    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+    <svg xmlns="http://www.w3.org/2000/svg" width={width} height={height} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
       <path d="M2 12L12 2l10 10-10 10Z" />
     </svg>
   );
@@ -54,9 +54,9 @@ function IconChevronDown({ className = "" }: { className?: string }) {
     </svg>
   );
 }
-function IconFile({ className = "" }: { className?: string }) {
+function IconFile({ className = "", width = 16, height = 16 }: any) {
   return (
-    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+    <svg xmlns="http://www.w3.org/2000/svg" width={width} height={height} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
       <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" /><polyline points="14 2 14 8 20 8" />
     </svg>
   );
@@ -75,16 +75,16 @@ function IconMessage({ className = "" }: { className?: string }) {
     </svg>
   );
 }
-function IconUpload({ className = "" }: { className?: string }) {
+function IconUpload({ className = "", width = 16, height = 16 }: any) {
   return (
-    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+    <svg xmlns="http://www.w3.org/2000/svg" width={width} height={height} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
       <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" />
     </svg>
   );
 }
-function IconClip({ className = "" }: { className?: string }) {
+function IconClip({ className = "", width = 20, height = 20 }: any) {
   return (
-    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+    <svg xmlns="http://www.w3.org/2000/svg" width={width} height={height} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
       <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48" />
     </svg>
   );
@@ -141,6 +141,7 @@ export default function ChatPage() {
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<number>(0);
   const [isConnecting, setIsConnecting] = useState(false);
   const [welcomeText, setWelcomeText] = useState("");
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -149,6 +150,8 @@ export default function ChatPage() {
   const [toast, setToast] = useState<Toast>({ show: false, message: "", type: "success" });
   const [sources, setSources] = useState<Source[]>([]);
   const [greeting] = useState(getGreeting);
+
+  const [showWelcomeModal, setShowWelcomeModal] = useState(true);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -161,11 +164,11 @@ export default function ChatPage() {
   }, [messages, isTyping, isConnecting]);
 
   useEffect(() => {
-    document.body.style.overflow = isSidebarOpen ? "hidden" : "unset";
+    document.body.style.overflow = (isSidebarOpen || showWelcomeModal) ? "hidden" : "unset";
     return () => {
       document.body.style.overflow = "unset";
     };
-  }, [isSidebarOpen]);
+  }, [isSidebarOpen, showWelcomeModal]);
 
   useEffect(() => {
     if (messages.length > 0) return;
@@ -267,25 +270,47 @@ export default function ChatPage() {
     }
   };
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     setIsUploading(true);
+    setUploadProgress(0);
     const formData = new FormData();
     formData.append("file", file);
 
-    try {
-      const res = await fetch(`${API}/api/upload`, { method: "POST", body: formData });
-      if (!res.ok) throw new Error(`Upload failed (${res.status})`);
-      setSources((prev) => [...prev, { name: file.name, size: formatFileSize(file.size) }]);
-      showToast(`Indexed ${file.name}`, "success");
-    } catch {
-      showToast("Upload failed.", "error");
-    } finally {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `${API}/api/upload`, true);
+
+    // Track the upload progress
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable) {
+        const percentComplete = Math.round((event.loaded / event.total) * 100);
+        setUploadProgress(percentComplete);
+      }
+    };
+
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        setSources((prev) => [...prev, { name: file.name, size: formatFileSize(file.size) }]);
+        showToast(`Indexed ${file.name}`, "success");
+        setShowWelcomeModal(false); // Close modal on success
+      } else {
+        showToast("Upload failed.", "error");
+      }
       setIsUploading(false);
+      setUploadProgress(0);
       if (fileInputRef.current) fileInputRef.current.value = "";
-    }
+    };
+
+    xhr.onerror = () => {
+      showToast("Upload failed due to a network error.", "error");
+      setIsUploading(false);
+      setUploadProgress(0);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    };
+
+    xhr.send(formData);
   };
 
   const handleRemoveSource = async (nameToRemove: string) => {
@@ -315,6 +340,79 @@ export default function ChatPage() {
   return (
     <div className="flex h-[100dvh] w-full overflow-hidden bg-[#FCFCFD] text-gray-900 relative antialiased selection:bg-red-200 selection:text-red-900">
       
+      {/* ---------------- WELCOME & UPLOAD MODAL ---------------- */}
+      {showWelcomeModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-gray-900/40 backdrop-blur-md p-4 sm:p-6 animate-in fade-in duration-300">
+          <div className="w-full max-w-lg bg-white rounded-[2.5rem] shadow-[0_24px_80px_rgba(220,38,38,0.2)] p-8 sm:p-12 relative overflow-hidden animate-in zoom-in-95 duration-400 border border-red-50">
+            
+            {/* Close 'X' Button */}
+            {!isUploading && (
+              <button
+                onClick={() => setShowWelcomeModal(false)}
+                className="absolute top-6 right-6 w-10 h-10 bg-gray-50 hover:bg-red-50 text-gray-400 hover:text-red-500 rounded-full flex items-center justify-center transition-colors z-20"
+                aria-label="Close modal"
+              >
+                <IconClose />
+              </button>
+            )}
+
+            {/* Decorative background blur inside the modal */}
+            <div className="absolute -top-24 -right-24 w-56 h-56 bg-red-400/20 rounded-full blur-3xl pointer-events-none" />
+            <div className="absolute -bottom-24 -left-24 w-56 h-56 bg-red-400/20 rounded-full blur-3xl pointer-events-none" />
+
+            <div className="relative z-10 flex flex-col items-center text-center">
+              {isUploading ? (
+                <div className="flex flex-col items-center justify-center py-6">
+                  {/* Pulsing Upload Animation with Progress % */}
+                  <div className="relative w-28 h-28 flex items-center justify-center mb-8">
+                    <div className="absolute inset-0 rounded-full border-[6px] border-red-50 opacity-50" />
+                    <div className="absolute inset-0 rounded-full border-[6px] border-[#FF3366] border-t-transparent animate-spin" />
+                    <div className="absolute inset-0 rounded-full bg-red-500/10 animate-pulse" />
+                    
+                    <span className="text-[22px] font-bold text-[#FF3366] animate-pulse">
+                      {uploadProgress}%
+                    </span>
+                  </div>
+                  <h2 className="text-[24px] font-bold text-gray-900 mb-3 tracking-tight">Extracting Intelligence</h2>
+                  <p className="text-[15px] text-gray-500 max-w-[280px] leading-relaxed">
+                    {uploadProgress === 100 
+                      ? "Processing your document..." 
+                      : "Uploading your document to the workspace..."}
+                  </p>
+                </div>
+              ) : (
+                <>
+                  {/* Default State */}
+                  <div className="w-24 h-24 bg-gradient-to-br from-red-50 to-red-100/50 rounded-[28px] flex items-center justify-center mb-6 shadow-inner ring-1 ring-red-100">
+                    <IconUpload width={40} height={40} className="text-[#FF3366]" />
+                  </div>
+                  <h2 className="text-[28px] sm:text-[32px] font-brand font-bold text-gray-900 mb-4 tracking-tight">Welcome to ScholarAI</h2>
+                  <p className="text-[15px] sm:text-[16px] text-gray-500 mb-10 leading-relaxed px-2">
+                    Upload your first PDF document to start chatting, extracting insights, and learning faster.
+                  </p>
+                  
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    className="w-full py-4 sm:py-5 px-6 rounded-2xl bg-gradient-to-r from-[#FF3366] to-[#CC0000] text-white text-[16px] sm:text-[17px] font-bold shadow-[0_8px_24px_rgba(220,38,38,0.25)] hover:shadow-[0_12px_32px_rgba(220,38,38,0.35)] hover:scale-[1.02] active:scale-95 transition-all duration-300 flex items-center justify-center gap-3"
+                  >
+                    <IconClip width={22} height={22} /> Choose a Document
+                  </button>
+
+                  <button 
+                    onClick={() => setShowWelcomeModal(false)}
+                    className="mt-6 text-[14.5px] font-semibold text-gray-400 hover:text-gray-700 transition-colors px-4 py-2 rounded-lg hover:bg-gray-50"
+                  >
+                    Skip for now, I just want to chat
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+      {/* -------------------------------------------------------- */}
+
+
       {/* Dynamic Background Pattern for depth */}
       <div className="absolute inset-0 z-0 pointer-events-none" 
            style={{ backgroundImage: 'radial-gradient(circle at 1px 1px, rgba(220, 38, 38, 0.05) 1px, transparent 0)', backgroundSize: '40px 40px' }} 
@@ -597,7 +695,7 @@ export default function ChatPage() {
                 {isUploading ? (
                   <span className="w-4.5 h-4.5 border-2 border-gray-300 border-t-red-500 rounded-full animate-spin" />
                 ) : (
-                  <IconClip />
+                  <IconClip width={20} height={20} />
                 )}
               </button>
 
