@@ -41,10 +41,6 @@ function ChatPageInner() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const isComposingRef = useRef(false);
 
-  useEffect(() => {
-    document.title = "Chat · ScholarAI";
-  }, []);
-
   const refreshSessions = useCallback(async () => {
     try {
       setSessions(await listSessions());
@@ -53,24 +49,11 @@ function ChatPageInner() {
     }
   }, []);
 
-  const LAST_SESSION_KEY = "scholarai:lastSessionId";
-
   useEffect(() => {
     refreshSessions();
     listSources()
       .then((rows) => setSourcesTotal(rows.length))
       .catch(() => {});
-
-    // Chat's local state is wiped every time this route unmounts (e.g.
-    // navigating to /library and back) — the messages are still safe in
-    // SQLite, this just restores which conversation was open so it
-    // doesn't come back blank. Skipped when arriving via a Library
-    // "Ask AI" deep-link, since that should start a fresh conversation.
-    if (!scopedFile) {
-      const savedId = typeof window !== "undefined" ? localStorage.getItem(LAST_SESSION_KEY) : null;
-      if (savedId) loadSession(Number(savedId));
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshSessions]);
 
   // Arriving from Library's "Ask AI" button: start a fresh chat with the
@@ -100,12 +83,14 @@ function ChatPageInner() {
     setSessionTitle("New Chat");
     setInput("");
     setIsSidebarOpen(false);
-    if (typeof window !== "undefined") localStorage.removeItem(LAST_SESSION_KEY);
   };
 
-  const loadSession = async (sessionId: number) => {
+  const handleSelectHistory = async (id: string | number) => {
+    const sessionId = Number(id);
+    setIsSidebarOpen(false);
     setActiveSessionId(sessionId);
-    if (typeof window !== "undefined") localStorage.setItem(LAST_SESSION_KEY, String(sessionId));
+    const session = sessions.find((s) => s.id === sessionId);
+    if (session) setSessionTitle(session.title);
     try {
       const rows = await getSessionMessages(sessionId);
       setMessages(rows.map((r) => ({ role: r.role, content: r.content })));
@@ -113,20 +98,6 @@ function ChatPageInner() {
       setMessages([{ role: "assistant", content: "⚠️ Couldn't load this conversation's history." }]);
     }
   };
-
-  const handleSelectHistory = async (id: string | number) => {
-    setIsSidebarOpen(false);
-    await loadSession(Number(id));
-  };
-
-  // Session titles come from the sessions list, which may still be
-  // loading when a session is restored on mount — sync the title in
-  // once both are available instead of hardcoding it at load time.
-  useEffect(() => {
-    if (activeSessionId === null) return;
-    const session = sessions.find((s) => s.id === activeSessionId);
-    if (session) setSessionTitle(session.title);
-  }, [sessions, activeSessionId]);
 
   const sendMessage = async () => {
     const userMessage = input.trim();
@@ -148,7 +119,6 @@ function ChatPageInner() {
         setActiveSessionId(sessionId);
         setSessionTitle(title);
         setSessions((prev) => [created, ...prev]);
-        if (typeof window !== "undefined") localStorage.setItem(LAST_SESSION_KEY, String(sessionId));
       }
 
       await streamChat(userMessage, sessionId, (chunk) => {

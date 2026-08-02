@@ -1,6 +1,7 @@
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
+from typing import Optional
 import tempfile
 import os
 import asyncio
@@ -14,6 +15,7 @@ try:
         prompt,
         fallback_prompt,
         vectorStore,
+        index,
         SENTINEL,
         is_repeated_question_query,
         get_filter_for_query,
@@ -26,14 +28,24 @@ except Exception as e:
     print(traceback.format_exc())
     sys.exit(1)
 
+import database as db
+
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 app = FastAPI()
 
+
+@app.on_event("startup")
+async def on_startup():
+    db.init_db()
+    print("Database ready at", db.DB_PATH)
+
+
 @app.get("/")
 async def root():
     return {"status": "ok", "message": "ScholarAI backend is running"}
+
 
 # Allow all origins to communicate with this backend (for flexibility with Vercel and other deployments)
 app.add_middleware(
@@ -44,8 +56,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-async def response_generator(query: str):
+
+async def response_generator(query: str, session_id: Optional[int]):
     print(f"Received query: {query}")
+    full_answer = ""
     try:
         # --- same retrieval logic as the CLI: doc-scoping + wide search for
         # "most repeated questions" style asks ---
@@ -67,10 +81,6 @@ async def response_generator(query: str):
         new_prompt = prompt.invoke({"context": context, "question": query})
 
         # --- DECIDE FIRST, THEN STREAM ---
-        # Generate the context-based answer in one non-streaming call so we
-        # can reliably check for the SENTINEL before anything reaches the
-        # client. This trades a bit of time-to-first-token for correctness:
-        # the raw "Could not find..." sentinel can never leak to the user.
         print("Generating context-based answer (non-streaming check)...")
         first_pass = await llm.ainvoke(new_prompt)
         answer_text = first_pass.content
@@ -82,37 +92,53 @@ async def response_generator(query: str):
         if went_out_of_material:
             print("No answer in material — streaming general-knowledge fallback")
             async for fb_chunk in llm.astream(fallback_prompt.invoke({"question": query})):
+                full_answer += fb_chunk.content
                 yield fb_chunk.content
                 await asyncio.sleep(0.01)
+            full_answer += "\n\n(outside the material)"
             yield "\n\n(outside the material)"
             print("Streaming complete")
-            return
+        else:
+            if note:
+                full_answer += note
+                yield note
 
-        if note:
-            yield note
+            chunk_size = 20
+            for i in range(0, len(answer_text), chunk_size):
+                piece = answer_text[i:i + chunk_size]
+                full_answer += piece
+                yield piece
+                await asyncio.sleep(0.01)
 
-        # Simulate a typing effect for the already-generated in-context
-        # answer (kept small so it still feels real-time on the frontend).
-        chunk_size = 20
-        for i in range(0, len(answer_text), chunk_size):
-            yield answer_text[i:i + chunk_size]
-            await asyncio.sleep(0.01)
-
-        print("Streaming complete")
+            print("Streaming complete")
     except Exception as e:
         print(f"ERROR in response_generator: {str(e)}")
         print(traceback.format_exc())
-        yield f"⚠️ Error: {str(e)}"
+        error_msg = f"⚠️ Error: {str(e)}"
+        full_answer += error_msg
+        yield error_msg
+    finally:
+        # Persist the exchange if this query belongs to a real session.
+        # (No session_id -> caller didn't create one first; nothing to save to.)
+        if session_id is not None:
+            try:
+                db.add_message(session_id, "user", query)
+                if full_answer:
+                    db.add_message(session_id, "assistant", full_answer)
+            except Exception as e:
+                print(f"WARNING: failed to persist chat history: {e}")
+
 
 @app.post("/api/chat")
-async def chat(query: str = Form(...)):
-    print(f"Received /api/chat request with query: {query}")
+async def chat(query: str = Form(...), session_id: Optional[int] = Form(None)):
+    print(f"Received /api/chat request with query: {query} (session_id={session_id})")
     try:
-        return StreamingResponse(response_generator(query), media_type="text/event-stream")
+        return StreamingResponse(response_generator(query, session_id), media_type="text/event-stream")
     except Exception as e:
         print(f"ERROR in /api/chat: {str(e)}")
         print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.post("/api/upload")
 async def upload_pdf(file: UploadFile = File(...)):
@@ -121,8 +147,10 @@ async def upload_pdf(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="Only PDF files are allowed")
 
     try:
+        content = await file.read()
+        size_bytes = len(content)
+
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
-            content = await file.read()
             tmp_file.write(content)
             tmp_file_path = tmp_file.name
 
@@ -136,8 +164,6 @@ async def upload_pdf(file: UploadFile = File(...)):
                 detail="Could not extract any text from this PDF. It may be scanned/image-based."
             )
 
-        # Tag each chunk with the real filename (not the temp path) so it
-        # can be referenced later by name, e.g. "in syllabus.pdf ..."
         basename = file.filename
         for d in documents:
             d.metadata["source"] = basename
@@ -150,11 +176,15 @@ async def upload_pdf(file: UploadFile = File(...)):
         os.remove(tmp_file_path)
 
         label = register_source(basename)
+        db.add_source(filename=basename, label=label, size_bytes=size_bytes, chunk_count=len(chunks))
 
         print(f"Successfully processed {file.filename}")
         return {
             "message": f"Successfully processed {file.filename}.",
             "label": label,
+            "filename": basename,
+            "size_bytes": size_bytes,
+            "chunk_count": len(chunks),
         }
     except HTTPException:
         raise
@@ -162,6 +192,49 @@ async def upload_pdf(file: UploadFile = File(...)):
         print(f"ERROR in /api/upload: {str(e)}")
         print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/sources")
+async def get_sources():
+    return {"sources": db.list_sources()}
+
+
+@app.delete("/api/sources/{filename}")
+async def delete_source_route(filename: str):
+    # NOTE: delete-by-metadata-filter needs a Pinecone serverless index.
+    # If yours is pod-based on an older plan this may no-op — check your
+    # Pinecone console after deleting to confirm vectors actually cleared.
+    # Either way the source disappears from the UI (removed from SQLite).
+    try:
+        index.delete(filter={"source_lower": {"$eq": filename.lower()}})
+    except Exception as e:
+        print(f"WARNING: Pinecone delete failed or unsupported on this index: {e}")
+
+    db.delete_source(filename)
+    return {"message": f"Deleted {filename}"}
+
+
+@app.get("/api/sessions")
+async def get_sessions():
+    return {"sessions": db.list_sessions()}
+
+
+@app.post("/api/sessions")
+async def create_session_route(title: str = Form("New Chat")):
+    session_id = db.create_session(title)
+    return {"id": session_id, "title": title}
+
+
+@app.delete("/api/sessions/{session_id}")
+async def delete_session_route(session_id: int):
+    db.delete_session(session_id)
+    return {"message": f"Deleted session {session_id}"}
+
+
+@app.get("/api/sessions/{session_id}/messages")
+async def get_session_messages(session_id: int):
+    return {"messages": db.list_messages(session_id)}
+
 
 if __name__ == "__main__":
     import uvicorn

@@ -183,7 +183,7 @@ def answer_query(query: str) -> str:
     if SENTINEL in answer or not context.strip():
         fb_prompt = fallback_prompt.invoke({"question": query})
         fb_response = llm.invoke(fb_prompt)
-        return f"{fb_response.content}\n\n(outside the material)"
+        return f"{fb_response.content}\n\n(material needed )"
 
     return f"{note}{answer}"
 
