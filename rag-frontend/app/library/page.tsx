@@ -1,3 +1,4 @@
+// FILE: app/library/page.tsx
 "use client";
 
 import { useEffect, useMemo, useState, useRef } from "react";
@@ -70,15 +71,15 @@ export default function LibraryPage() {
   };
 
   return (
-    <div className="flex h-[100dvh] w-full overflow-hidden bg-[#0A0A0C] text-gray-100 antialiased relative">
+    <div className="flex h-[100dvh] w-full overflow-hidden bg-white text-gray-900 antialiased relative">
       <Sidebar active="library" isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
 
       <main className="flex-1 flex flex-col min-w-0 overflow-y-auto custom-scrollbar">
         <div className="px-5 sm:px-10 py-8 max-w-6xl w-full mx-auto">
           <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-6">
             <div>
-              <h1 className="text-[26px] sm:text-[30px] font-bold text-white tracking-tight mb-1.5">My Library</h1>
-              <p className="text-[14px] text-gray-400">Manage and chat with your uploaded knowledge assets.</p>
+              <h1 className="text-[26px] sm:text-[30px] font-bold text-gray-900 tracking-tight mb-1.5">My Library</h1>
+              <p className="text-[14px] text-gray-500">Manage and chat with your uploaded knowledge assets.</p>
             </div>
             <div className="relative w-full sm:w-72 shrink-0">
               <IconSearch className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-500" />
@@ -86,7 +87,7 @@ export default function LibraryPage() {
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Search your materials..."
-                className="w-full bg-zinc-900/70 border border-zinc-800 rounded-full pl-10 pr-4 py-2.5 text-[13px] text-gray-200 placeholder:text-gray-600 outline-none focus:border-lime-400/40"
+                className="w-full bg-gray-50/80 border border-gray-200 rounded-full pl-10 pr-4 py-2.5 text-[13px] text-gray-800 placeholder:text-gray-400 outline-none focus:border-violet-500/40"
               />
             </div>
           </div>
@@ -97,7 +98,7 @@ export default function LibraryPage() {
                 key={f.id}
                 onClick={() => setFilter(f.id)}
                 className={`px-4 py-1.5 rounded-full text-[12.5px] font-semibold transition-colors ${
-                  filter === f.id ? "bg-lime-400 text-black" : "text-gray-400 hover:text-gray-200 hover:bg-zinc-900"
+                  filter === f.id ? "bg-violet-500 text-white" : "text-gray-500 hover:text-gray-800 hover:bg-gray-50"
                 }`}
               >
                 {f.label}
@@ -112,18 +113,18 @@ export default function LibraryPage() {
               <p className="text-[13.5px] text-red-400 mb-3">{loadError}</p>
               <button
                 onClick={refresh}
-                className="text-[12.5px] font-semibold text-lime-400 hover:text-lime-300 transition-colors"
+                className="text-[12.5px] font-semibold text-violet-500 hover:text-violet-600 transition-colors"
               >
                 Try again
               </button>
-              <p className="text-[11.5px] text-gray-600 mt-3">
+              <p className="text-[11.5px] text-gray-400 mt-3">
                 Most common cause: the backend (<code className="text-gray-500">python server.py</code>) isn't running.
               </p>
             </div>
           )}
 
           {!loading && !loadError && (filter === "link" || filter === "text") && (
-            <p className="text-[13.5px] text-gray-500 italic py-10 text-center border border-dashed border-zinc-800 rounded-2xl">
+            <p className="text-[13.5px] text-gray-500 italic py-10 text-center border border-dashed border-gray-200 rounded-2xl">
               {filter === "link" ? "Links" : "Text notes"} aren't supported yet — only PDF uploads are wired up on the backend right now.
             </p>
           )}
@@ -131,20 +132,20 @@ export default function LibraryPage() {
           {!loading && !loadError && filter !== "link" && filter !== "text" && (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
               {visible.map((m) => (
-                <div key={m.id} className="rounded-3xl border border-zinc-800 bg-zinc-900/50 overflow-hidden flex flex-col group">
-                  <div className="h-28 bg-gradient-to-br from-violet-500/15 to-zinc-900 flex items-center justify-center relative">
-                    <IconFile width={30} height={30} className="text-white/25" />
+                <div key={m.id} className="rounded-3xl border border-gray-200 bg-gray-50/60 overflow-hidden flex flex-col group">
+                  <div className="h-28 bg-gradient-to-br from-violet-500/15 to-gray-100 flex items-center justify-center relative">
+                    <IconFile width={30} height={30} className="text-gray-900/25" />
                   </div>
                   <div className="p-4 flex flex-col gap-2.5 flex-1">
                     <div>
-                      <p className="text-[14px] font-bold text-lime-300 leading-snug line-clamp-2 m-0">{m.filename}</p>
+                      <p className="text-[14px] font-bold text-violet-600 leading-snug line-clamp-2 m-0">{m.filename}</p>
                       <p className="text-[10.5px] font-semibold text-gray-500 tracking-wide mt-1.5 m-0">
                         PDF • {m.chunk_count} chunks indexed
                       </p>
                     </div>
                     <button
                       onClick={() => askAbout(m.filename)}
-                      className="mt-auto flex items-center justify-center gap-2 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-gray-200 text-[12.5px] font-semibold transition-colors"
+                      className="mt-auto flex items-center justify-center gap-2 py-2.5 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-800 text-[12.5px] font-semibold transition-colors"
                     >
                       <IconFile width={14} height={14} />
                       Ask AI
@@ -155,12 +156,12 @@ export default function LibraryPage() {
 
               <button
                 onClick={() => fileInputRef.current?.click()}
-                className="rounded-3xl border border-dashed border-zinc-700 hover:border-lime-400/40 flex flex-col items-center justify-center text-center p-8 min-h-[220px] transition-colors"
+                className="rounded-3xl border border-dashed border-gray-300 hover:border-violet-500/40 flex flex-col items-center justify-center text-center p-8 min-h-[220px] transition-colors"
               >
-                <div className="w-11 h-11 rounded-full bg-zinc-800 flex items-center justify-center mb-3.5">
-                  <IconPlus width={18} height={18} className="text-gray-300" />
+                <div className="w-11 h-11 rounded-full bg-gray-100 flex items-center justify-center mb-3.5">
+                  <IconPlus width={18} height={18} className="text-gray-700" />
                 </div>
-                <p className="text-[13px] font-semibold text-gray-200 mb-1">Add Material</p>
+                <p className="text-[13px] font-semibold text-gray-800 mb-1">Add Material</p>
                 <p className="text-[12px] text-gray-500 leading-relaxed max-w-[180px]">Upload a PDF to start studying</p>
               </button>
 
@@ -176,7 +177,7 @@ export default function LibraryPage() {
         <button
           onClick={() => fileInputRef.current?.click()}
           aria-label="Upload material"
-          className="fixed bottom-7 right-7 w-14 h-14 rounded-full flex items-center justify-center text-black shadow-[0_10px_28px_rgba(215,255,63,0.35)] hover:scale-105 active:scale-95 transition-transform"
+          className="fixed bottom-7 right-7 w-14 h-14 rounded-full flex items-center justify-center text-white shadow-[0_10px_28px_rgba(124,92,252,0.35)] hover:scale-105 active:scale-95 transition-transform"
           style={{ background: ACCENT_GRADIENT }}
         >
           <IconUploadCloud width={22} height={22} />

@@ -1,312 +1,197 @@
+// FILE: app/library/page.tsx
 "use client";
 
-import { useState, useRef, useEffect, useCallback, Suspense } from "react";
-import { useSearchParams } from "next/navigation";
-import Sidebar, { HistoryItem } from "@/components/Sidebar";
-import TopBar from "@/components/TopBar";
-import { IconDiamond, IconPlus, IconMic, IconSend } from "@/components/icons";
+import { useEffect, useMemo, useState, useRef } from "react";
+import { useRouter } from "next/navigation";
+import Sidebar from "@/components/Sidebar";
+import { IconSearch, IconFile, IconPlus, IconUploadCloud } from "@/components/icons";
 import { ACCENT_GRADIENT } from "@/lib/theme";
-import {
-  listSessions,
-  createSession,
-  getSessionMessages,
-  streamChat,
-  listSources,
-  uploadFile,
-  SessionRow,
-} from "@/lib/api";
+import { listSources, uploadFile, SourceRow } from "@/lib/api";
 
-interface ChatMessage {
-  role: "user" | "assistant";
-  content: string;
-}
+const FILTERS: { id: "all" | "pdf" | "link" | "text"; label: string }[] = [
+  { id: "all", label: "All" },
+  { id: "pdf", label: "PDFs" },
+  { id: "link", label: "Links" },
+  { id: "text", label: "Text" },
+];
 
-function ChatPageInner() {
-  const searchParams = useSearchParams();
-  const scopedFile = searchParams.get("file");
-
-  const [sessions, setSessions] = useState<SessionRow[]>([]);
-  const [activeSessionId, setActiveSessionId] = useState<number | null>(null);
-  const [sessionTitle, setSessionTitle] = useState("New Chat");
-  const [sourcesTotal, setSourcesTotal] = useState(0);
-
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [input, setInput] = useState("");
-  const [isTyping, setIsTyping] = useState(false);
+export default function LibraryPage() {
+  const router = useRouter();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [isUploading, setIsUploading] = useState(false);
-
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const [sources, setSources] = useState<SourceRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [filter, setFilter] = useState<"all" | "pdf" | "link" | "text">("all");
+  const [query, setQuery] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const isComposingRef = useRef(false);
 
-  const refreshSessions = useCallback(async () => {
-    try {
-      setSessions(await listSessions());
-    } catch {
-      // Sidebar just shows an empty history list if this fails — not fatal.
-    }
+  useEffect(() => {
+    document.title = "Library · ScholarAI";
   }, []);
 
-  useEffect(() => {
-    refreshSessions();
-    listSources()
-      .then((rows) => setSourcesTotal(rows.length))
-      .catch(() => {});
-  }, [refreshSessions]);
-
-  // Arriving from Library's "Ask AI" button: start a fresh chat with the
-  // filename pre-filled so the backend's existing filename-in-query
-  // detection (get_filter_for_query in main.py) scopes retrieval to it.
-  useEffect(() => {
-    if (scopedFile) {
-      setInput(`Regarding ${scopedFile}, `);
-      textareaRef.current?.focus();
-    }
-  }, [scopedFile]);
-
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, isTyping]);
-
-  useEffect(() => {
-    const el = textareaRef.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${el.scrollHeight}px`;
-  }, [input]);
-
-  const handleNewChat = () => {
-    setMessages([]);
-    setActiveSessionId(null);
-    setSessionTitle("New Chat");
-    setInput("");
-    setIsSidebarOpen(false);
-  };
-
-  const handleSelectHistory = async (id: string | number) => {
-    const sessionId = Number(id);
-    setIsSidebarOpen(false);
-    setActiveSessionId(sessionId);
-    const session = sessions.find((s) => s.id === sessionId);
-    if (session) setSessionTitle(session.title);
+  const refresh = async () => {
     try {
-      const rows = await getSessionMessages(sessionId);
-      setMessages(rows.map((r) => ({ role: r.role, content: r.content })));
-    } catch {
-      setMessages([{ role: "assistant", content: "⚠️ Couldn't load this conversation's history." }]);
-    }
-  };
-
-  const sendMessage = async () => {
-    const userMessage = input.trim();
-    if (!userMessage || isTyping) return;
-
-    let sessionId = activeSessionId;
-    setInput("");
-    setMessages((prev) => [...prev, { role: "user", content: userMessage }]);
-    setIsTyping(true);
-    setMessages((prev) => [...prev, { role: "assistant", content: "" }]);
-
-    try {
-      // Lazily create the session on the first message, titled from it —
-      // matches the "starts empty, fills in as you go" behavior.
-      if (sessionId === null) {
-        const title = userMessage.length > 40 ? `${userMessage.slice(0, 40)}…` : userMessage;
-        const created = await createSession(title);
-        sessionId = created.id;
-        setActiveSessionId(sessionId);
-        setSessionTitle(title);
-        setSessions((prev) => [created, ...prev]);
-      }
-
-      await streamChat(userMessage, sessionId, (chunk) => {
-        setMessages((prev) => {
-          const updated = [...prev];
-          const last = updated.length - 1;
-          updated[last] = { ...updated[last], content: updated[last].content + chunk };
-          return updated;
-        });
-      });
-    } catch (error) {
-      setMessages((prev) => {
-        const updated = [...prev];
-        const last = updated.length - 1;
-        updated[last] = {
-          role: "assistant",
-          content: `⚠️ ${error instanceof Error ? error.message : "Connection interrupted."}`,
-        };
-        return updated;
-      });
+      setLoadError(null);
+      const rows = await listSources();
+      setSources(rows);
+    } catch (e) {
+      // This is the fix — previously an unhandled rejection here crashed
+      // the whole page with Next.js's error overlay instead of showing
+      // something recoverable. A failed fetch is an expected possibility
+      // (backend down, CORS, etc.), not a bug in itself.
+      setLoadError(e instanceof Error ? e.message : "Failed to load your library.");
     } finally {
-      setIsTyping(false);
+      setLoading(false);
     }
   };
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
-    setIsUploading(true);
+  useEffect(() => {
+    refresh();
+  }, []);
+
+  const visible = useMemo(() => {
+    if (filter === "link" || filter === "text") return [];
+    return sources.filter((s) => s.filename.toLowerCase().includes(query.trim().toLowerCase()));
+  }, [sources, filter, query]);
+
+  const handleAddFiles = async (files: FileList | null) => {
+    if (!files) return;
     try {
       await Promise.all(Array.from(files).map((f) => uploadFile(f)));
-      const rows = await listSources();
-      setSourcesTotal(rows.length);
-    } catch {
-      // A failed upload here doesn't need to interrupt the chat — the
-      // Sources page is the place to see/retry failures in detail.
+      await refresh();
+    } catch (e) {
+      setLoadError(e instanceof Error ? e.message : "Upload failed.");
     } finally {
-      setIsUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
   };
 
-  const handleComposerKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey && !isComposingRef.current) {
-      e.preventDefault();
-      sendMessage();
-    }
+  const askAbout = (filename: string) => {
+    router.push(`/chat?file=${encodeURIComponent(filename)}`);
   };
 
-  const canSend = input.trim().length > 0 && !isTyping;
-  const historyItems: HistoryItem[] = sessions.map((s) => ({ id: s.id, title: s.title }));
-
   return (
-    <div className="flex h-[100dvh] w-full overflow-hidden bg-[#0A0A0C] text-gray-100 relative antialiased selection:bg-lime-300 selection:text-black">
-      <Sidebar
-        active="new-chat"
-        showRecentHistory
-        historyItems={historyItems}
-        activeHistoryId={activeSessionId}
-        onSelectHistory={handleSelectHistory}
-        isOpen={isSidebarOpen}
-        onClose={() => setIsSidebarOpen(false)}
-      />
+    <div className="flex h-[100dvh] w-full overflow-hidden bg-white text-gray-900 antialiased relative">
+      <Sidebar active="library" isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
 
-      <main className="flex-1 flex flex-col min-w-0">
-        <TopBar
-          mode="session"
-          activeTab="history"
-          sessionTitle={sessionTitle}
-          sourcesActiveCount={sourcesTotal}
-          onOpenSidebar={() => setIsSidebarOpen(true)}
-        />
-
-        <div className="flex-1 overflow-y-auto px-4 sm:px-8 custom-scrollbar flex flex-col pt-6 pb-4">
-          {isUploading && (
-            <div className="sticky top-0 z-10 w-full flex justify-center mb-6">
-              <div className="bg-zinc-900/90 backdrop-blur border border-zinc-800 shadow-sm rounded-full px-5 py-2 flex items-center gap-3">
-                <span className="w-3.5 h-3.5 border-[2.5px] border-zinc-700 border-t-lime-400 rounded-full animate-spin" />
-                <span className="text-[13px] text-gray-300 font-medium">Uploading & indexing…</span>
-              </div>
+      <main className="flex-1 flex flex-col min-w-0 overflow-y-auto custom-scrollbar">
+        <div className="px-5 sm:px-10 py-8 max-w-6xl w-full mx-auto">
+          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-6">
+            <div>
+              <h1 className="text-[26px] sm:text-[30px] font-bold text-gray-900 tracking-tight mb-1.5">My Library</h1>
+              <p className="text-[14px] text-gray-500">Manage and chat with your uploaded knowledge assets.</p>
             </div>
-          )}
-
-          {messages.length === 0 ? (
-            <div className="flex-1 flex flex-col items-center justify-center max-w-2xl mx-auto w-full px-4 text-center pb-16">
-              <div className="w-20 h-20 mb-8 rounded-3xl flex items-center justify-center shadow-[0_8px_32px_rgba(215,255,63,0.15)] ring-1 ring-lime-400/20 bg-gradient-to-br from-zinc-900 to-zinc-950">
-                <IconDiamond className="w-10 h-10 text-lime-400" />
-              </div>
-              <h1 className="font-brand text-4xl sm:text-5xl font-bold mb-4 tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-white via-lime-200 to-lime-400">
-                What do you want to explore today?
-              </h1>
-              <p className="text-[17px] mt-2 font-medium text-gray-400 max-w-md leading-relaxed">
-                {sourcesTotal > 0
-                  ? `${sourcesTotal} source${sourcesTotal === 1 ? "" : "s"} available — ask anything, or mention a filename to focus on one.`
-                  : "Upload a document from Sources to begin analyzing, or just start typing to explore."}
-              </p>
-            </div>
-          ) : (
-            <div className="w-full max-w-3xl mx-auto py-2 space-y-8">
-              {messages.map((msg, idx) => (
-                <div key={idx} className={`flex w-full ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-                  {msg.role === "user" ? (
-                    <div className="px-5 py-3.5 whitespace-pre-wrap break-words text-[14.5px] leading-relaxed max-w-[85%] sm:max-w-[75%] rounded-[20px] rounded-br-sm bg-zinc-800 text-gray-100 border border-zinc-700/60">
-                      {msg.content}
-                    </div>
-                  ) : (
-                    <div className="flex gap-3.5 max-w-[95%] sm:max-w-[88%]">
-                      <div className="w-8 h-8 rounded-full shrink-0 flex items-center justify-center text-black mt-0.5" style={{ background: ACCENT_GRADIENT }}>
-                        <IconDiamond className="w-4 h-4" />
-                      </div>
-                      <div className="px-5 py-5 rounded-[20px] rounded-tl-sm bg-zinc-900 border border-zinc-800/80 shadow-[0_4px_20px_rgba(0,0,0,0.25)] min-w-0 flex-1">
-                        {msg.content ? (
-                          <p className="text-[14.5px] leading-relaxed text-gray-100 m-0 whitespace-pre-wrap break-words">{msg.content}</p>
-                        ) : isTyping && idx === messages.length - 1 ? (
-                          <div className="flex items-center gap-1.5 h-6">
-                            <span className="w-2 h-2 rounded-full animate-bounce bg-lime-400 [animation-delay:0ms]" />
-                            <span className="w-2 h-2 rounded-full animate-bounce bg-lime-400 [animation-delay:150ms]" />
-                            <span className="w-2 h-2 rounded-full animate-bounce bg-lime-400 [animation-delay:300ms]" />
-                          </div>
-                        ) : null}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ))}
-              <div ref={bottomRef} className="h-4" />
-            </div>
-          )}
-        </div>
-
-        <div className="w-full px-4 sm:px-8 pb-6 pt-4 shrink-0 relative">
-          <div className="absolute top-0 left-0 w-full h-12 -mt-12 bg-gradient-to-t from-[#0A0A0C] to-transparent pointer-events-none" />
-          <div className="max-w-3xl mx-auto relative">
-            <div className="flex items-end gap-2 rounded-[28px] p-2 bg-zinc-900/80 backdrop-blur-xl border border-zinc-800 focus-within:border-lime-400/50 focus-within:ring-4 focus-within:ring-lime-400/10 transition-all">
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                title="Upload a source"
-                className="mb-0.5 ml-0.5 w-10 h-10 shrink-0 rounded-full bg-zinc-800 text-gray-400 hover:text-lime-400 hover:bg-lime-400/10 flex items-center justify-center transition-colors"
-              >
-                <IconPlus width={18} height={18} className={isUploading ? "animate-pulse text-lime-400" : ""} />
-              </button>
-
-              <textarea
-                ref={textareaRef}
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={handleComposerKeyDown}
-                onCompositionStart={() => (isComposingRef.current = true)}
-                onCompositionEnd={() => (isComposingRef.current = false)}
-                placeholder="Ask ScholarAI or upload sources..."
-                className="flex-1 resize-none custom-scrollbar text-[14.5px] py-3 min-h-[44px] max-h-[200px] font-medium outline-none bg-transparent border-none text-gray-100 placeholder:text-gray-500 leading-relaxed"
-                rows={1}
+            <div className="relative w-full sm:w-72 shrink-0">
+              <IconSearch className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-500" />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search your materials..."
+                className="w-full bg-gray-50/80 border border-gray-200 rounded-full pl-10 pr-4 py-2.5 text-[13px] text-gray-800 placeholder:text-gray-400 outline-none focus:border-violet-500/40"
               />
-
-              <button title="Voice input (not wired up yet)" disabled className="mb-0.5 w-10 h-10 shrink-0 rounded-full text-gray-600 flex items-center justify-center cursor-not-allowed">
-                <IconMic />
-              </button>
-
-              <button
-                onClick={sendMessage}
-                disabled={!canSend}
-                className={`mb-0.5 mr-0.5 w-10 h-10 shrink-0 rounded-full flex items-center justify-center transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
-                  canSend ? "text-black hover:scale-105 active:scale-95" : "bg-zinc-800 text-gray-600"
-                }`}
-                style={canSend ? { background: ACCENT_GRADIENT } : undefined}
-              >
-                <IconSend className={canSend ? "translate-x-[1px]" : ""} />
-              </button>
-            </div>
-            <div className="flex items-center justify-center mt-3">
-              <span className="text-[11.5px] font-medium text-gray-600">
-                ScholarAI can make mistakes. Verify important info.
-              </span>
             </div>
           </div>
+
+          <div className="flex items-center gap-2 mb-7">
+            {FILTERS.map((f) => (
+              <button
+                key={f.id}
+                onClick={() => setFilter(f.id)}
+                className={`px-4 py-1.5 rounded-full text-[12.5px] font-semibold transition-colors ${
+                  filter === f.id ? "bg-violet-500 text-white" : "text-gray-500 hover:text-gray-800 hover:bg-gray-50"
+                }`}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+
+          {loading && <p className="text-[13.5px] text-gray-500 py-10 text-center">Loading your library…</p>}
+
+          {!loading && loadError && (
+            <div className="py-10 text-center border border-dashed border-red-900/40 rounded-2xl">
+              <p className="text-[13.5px] text-red-400 mb-3">{loadError}</p>
+              <button
+                onClick={refresh}
+                className="text-[12.5px] font-semibold text-violet-500 hover:text-violet-600 transition-colors"
+              >
+                Try again
+              </button>
+              <p className="text-[11.5px] text-gray-400 mt-3">
+                Most common cause: the backend (<code className="text-gray-500">python server.py</code>) isn't running.
+              </p>
+            </div>
+          )}
+
+          {!loading && !loadError && (filter === "link" || filter === "text") && (
+            <p className="text-[13.5px] text-gray-500 italic py-10 text-center border border-dashed border-gray-200 rounded-2xl">
+              {filter === "link" ? "Links" : "Text notes"} aren't supported yet — only PDF uploads are wired up on the backend right now.
+            </p>
+          )}
+
+          {!loading && !loadError && filter !== "link" && filter !== "text" && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+              {visible.map((m) => (
+                <div key={m.id} className="rounded-3xl border border-gray-200 bg-gray-50/60 overflow-hidden flex flex-col group">
+                  <div className="h-28 bg-gradient-to-br from-violet-500/15 to-gray-100 flex items-center justify-center relative">
+                    <IconFile width={30} height={30} className="text-gray-900/25" />
+                  </div>
+                  <div className="p-4 flex flex-col gap-2.5 flex-1">
+                    <div>
+                      <p className="text-[14px] font-bold text-violet-600 leading-snug line-clamp-2 m-0">{m.filename}</p>
+                      <p className="text-[10.5px] font-semibold text-gray-500 tracking-wide mt-1.5 m-0">
+                        PDF • {m.chunk_count} chunks indexed
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => askAbout(m.filename)}
+                      className="mt-auto flex items-center justify-center gap-2 py-2.5 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-800 text-[12.5px] font-semibold transition-colors"
+                    >
+                      <IconFile width={14} height={14} />
+                      Ask AI
+                    </button>
+                  </div>
+                </div>
+              ))}
+
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="rounded-3xl border border-dashed border-gray-300 hover:border-violet-500/40 flex flex-col items-center justify-center text-center p-8 min-h-[220px] transition-colors"
+              >
+                <div className="w-11 h-11 rounded-full bg-gray-100 flex items-center justify-center mb-3.5">
+                  <IconPlus width={18} height={18} className="text-gray-700" />
+                </div>
+                <p className="text-[13px] font-semibold text-gray-800 mb-1">Add Material</p>
+                <p className="text-[12px] text-gray-500 leading-relaxed max-w-[180px]">Upload a PDF to start studying</p>
+              </button>
+
+              {visible.length === 0 && (
+                <p className="col-span-full text-[13.5px] text-gray-500 italic py-6 text-center">
+                  {query ? "No materials match your search." : "Your library is empty — add a PDF to get started."}
+                </p>
+              )}
+            </div>
+          )}
         </div>
+
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          aria-label="Upload material"
+          className="fixed bottom-7 right-7 w-14 h-14 rounded-full flex items-center justify-center text-white shadow-[0_10px_28px_rgba(124,92,252,0.35)] hover:scale-105 active:scale-95 transition-transform"
+          style={{ background: ACCENT_GRADIENT }}
+        >
+          <IconUploadCloud width={22} height={22} />
+        </button>
       </main>
 
-      <input type="file" multiple accept=".pdf" className="hidden" ref={fileInputRef} onChange={handleFileUpload} />
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        accept=".pdf"
+        className="hidden"
+        onChange={(e) => handleAddFiles(e.target.files)}
+      />
     </div>
-  );
-}
-
-// useSearchParams needs a Suspense boundary in the App Router.
-export default function ChatPage() {
-  return (
-    <Suspense fallback={null}>
-      <ChatPageInner />
-    </Suspense>
   );
 }
