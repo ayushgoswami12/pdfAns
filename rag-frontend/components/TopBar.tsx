@@ -23,25 +23,25 @@ interface TopBarProps {
 const TABS: { id: Tab; label: string; href: string }[] = [
   { id: "sources", label: "Sources", href: "/sources" },
   { id: "notebook", label: "Notebook", href: "/notebook" },
-  { id: "history", label: "History", href: "/chat" },
+  { id: "history", label: "Current Chat", href: "/chat" },
 ];
 
 export default function TopBar({ activeTab, mode, sessionTitle, sourcesActiveCount, onOpenSidebar }: TopBarProps) {
   return (
-    <header className="h-[64px] flex items-center justify-between px-5 sm:px-8 shrink-0 sticky top-0 z-30 bg-[#0A0A0C]/85 backdrop-blur-xl border-b border-zinc-800/60">
+    <header className="h-[64px] flex items-center justify-between px-5 sm:px-8 shrink-0 sticky top-0 z-30 bg-white/85 backdrop-blur-xl border-b border-gray-200/60">
       <div className="flex items-center gap-5 min-w-0">
         <button
           onClick={onOpenSidebar}
-          className="md:hidden w-9 h-9 rounded-lg bg-zinc-900 border border-zinc-800 text-gray-300 flex items-center justify-center shrink-0"
+          className="md:hidden w-9 h-9 rounded-lg bg-gray-50 border border-gray-200 text-gray-700 flex items-center justify-center shrink-0"
         >
           <IconMenu width={18} height={18} />
         </button>
 
         {mode === "global" ? (
-          <span className="text-[16px] font-bold text-white tracking-tight shrink-0">ScholarAI</span>
+          <span className="text-[16px] font-bold text-gray-900 tracking-tight shrink-0">ScholarAI</span>
         ) : (
           <div className="flex items-center gap-3 min-w-0">
-            <span className="text-[16px] font-bold text-white tracking-tight truncate">{sessionTitle}</span>
+            <span className="text-[16px] font-bold text-gray-900 tracking-tight truncate">{sessionTitle}</span>
             {typeof sourcesActiveCount === "number" && (
               <span className={`hidden sm:inline text-[10.5px] font-semibold tracking-wide px-2.5 py-1 rounded-full whitespace-nowrap ${NEUTRAL_BADGE}`}>
                 {sourcesActiveCount} SOURCES ACTIVE
@@ -57,8 +57,8 @@ export default function TopBar({ activeTab, mode, sessionTitle, sourcesActiveCou
               href={tab.href}
               className={`text-[13.5px] font-semibold pb-1 border-b-2 transition-colors ${
                 activeTab === tab.id
-                  ? "text-lime-300 border-lime-300"
-                  : "text-gray-500 border-transparent hover:text-gray-300"
+                  ? "text-violet-600 border-violet-600"
+                  : "text-gray-500 border-transparent hover:text-gray-700"
               }`}
             >
               {tab.label}
@@ -74,15 +74,15 @@ export default function TopBar({ activeTab, mode, sessionTitle, sourcesActiveCou
             Share Session
           </button>
         ) : (
-          <button className="w-9 h-9 rounded-full bg-zinc-900 border border-zinc-800 text-gray-400 hover:text-lime-300 flex items-center justify-center transition-colors">
+          <button className="w-9 h-9 rounded-full bg-gray-50 border border-gray-200 text-gray-500 hover:text-violet-600 flex items-center justify-center transition-colors">
             <IconShare />
           </button>
         )}
-        <button className="w-9 h-9 rounded-full bg-zinc-900 border border-zinc-800 text-gray-400 hover:text-lime-300 flex items-center justify-center transition-colors">
+        <button className="w-9 h-9 rounded-full bg-gray-50 border border-gray-200 text-gray-500 hover:text-violet-600 flex items-center justify-center transition-colors">
           <IconBell />
         </button>
         <div
-          className="w-9 h-9 rounded-full flex items-center justify-center text-black text-[11px] font-bold shrink-0"
+          className="w-9 h-9 rounded-full flex items-center justify-center text-white text-[11px] font-bold shrink-0"
           style={{ background: ACCENT_GRADIENT }}
         >
           AS

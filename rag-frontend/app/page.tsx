@@ -1,37 +1,48 @@
 "use client";
 
 import Link from "next/link";
+import { IconDiamond } from "@/components/icons";
+import { ACCENT_GRADIENT } from "@/lib/theme";
 
 export default function HomePage() {
   return (
-    <main className="min-h-screen flex flex-col bg-[#0A0A0C] text-gray-100 font-[family-name:var(--font-inter)] selection:bg-lime-300 selection:text-black overflow-x-hidden">
+    <main className="min-h-screen flex flex-col bg-white text-gray-900 font-[family-name:var(--font-inter)] selection:bg-violet-200 selection:text-violet-900 overflow-x-hidden">
 
-      {/* NAVBAR */}
-      <nav className="fixed top-0 left-0 right-0 h-[64px] md:h-[72px] z-50 flex items-center justify-between px-4 sm:px-6 md:px-12 bg-[#0A0A0C]/70 backdrop-blur-xl border-b border-zinc-800/60 transition-all duration-300">
-        <div className="flex items-center gap-1.5 tracking-tight">
-          <span className="font-[family-name:var(--font-syne)] text-[20px] md:text-[22px] font-bold text-white">Scholar</span>
-          <span className="font-[family-name:var(--font-syne)] text-[20px] md:text-[22px] font-bold text-transparent bg-clip-text bg-gradient-to-r from-[#E4FF6E] to-[#B9E62E]">AI</span>
-        </div>
-        <div className="flex items-center gap-4 sm:gap-8">
-          <a href="#" className="text-gray-300 hover:text-lime-400 text-[14px] md:text-[14.5px] font-medium transition-colors hidden sm:block">
-            GitHub
-          </a>
-          {/* <Link 
-            href="/chat" 
-            className="px-5 sm:px-6 py-2 sm:py-2.5 rounded-full bg-gradient-to-r from-[#E4FF6E] to-[#B9E62E] text-black text-[13px] sm:text-[14px] font-bold hover:shadow-[0_4px_16px_rgba(215,255,63,0.3)] hover:scale-105 active:scale-95 transition-all duration-300 whitespace-nowrap"
+      {/* NAVBAR — floating dark pill, matching the reference */}
+      <nav className="fixed top-4 sm:top-6 left-1/2 -translate-x-1/2 z-50 w-[94%] max-w-[820px] flex items-center justify-between gap-3 px-3 sm:px-4 py-2 sm:py-2.5 rounded-full bg-gray-900 shadow-[0_10px_40px_rgba(0,0,0,0.18)] border border-gray-800">
+        <div className="flex items-center gap-2 pl-1.5">
+          <div
+            className="w-7 h-7 rounded-full flex items-center justify-center text-white shrink-0"
+            style={{ background: ACCENT_GRADIENT }}
           >
-            Launch App
-          </Link> */}
+            <IconDiamond width={14} height={14} />
+          </div>
+          <span className="font-[family-name:var(--font-syne)] text-[14.5px] sm:text-[15.5px] font-bold text-white whitespace-nowrap">
+            ScholarAI
+          </span>
         </div>
+
+        <div className="hidden md:flex items-center gap-6 lg:gap-8">
+          <Link href="/chat" className="text-gray-300 hover:text-white text-[13.5px] font-medium transition-colors">Chat</Link>
+          <Link href="/library" className="text-gray-300 hover:text-white text-[13.5px] font-medium transition-colors">Library</Link>
+          <Link href="/sources" className="text-gray-300 hover:text-white text-[13.5px] font-medium transition-colors">Sources</Link>
+        </div>
+
+        <Link
+          href="/chat"
+          className="shrink-0 px-4 sm:px-5 py-2 rounded-full bg-white text-gray-900 text-[12.5px] sm:text-[13px] font-bold hover:bg-gray-100 hover:scale-[1.03] active:scale-95 transition-all duration-200 whitespace-nowrap"
+        >
+          Get Started
+        </Link>
       </nav>
 
       {/* HERO SECTION */}
-      <section className="relative min-h-[100svh] flex flex-col items-center justify-center overflow-hidden pt-[64px] md:pt-[72px]">
+      <section className="relative min-h-[100svh] flex flex-col items-center justify-center overflow-hidden pt-[110px] md:pt-[130px]">
 
         {/* Layer 1: Radial Gradient */}
         <div
           className="absolute inset-0 z-0 pointer-events-none"
-          style={{ background: "radial-gradient(ellipse 100% 60% at 50% -10%, rgba(215,255,63,0.08) 0%, transparent 70%)" }}
+          style={{ background: "radial-gradient(ellipse 100% 60% at 50% -10%, rgba(124,92,252,0.08) 0%, transparent 70%)" }}
         />
 
         {/* Layer 2: Subtle Grid Lines */}
@@ -51,7 +62,7 @@ export default function HomePage() {
           style={{
             top: "calc(50% - 150px)",
             borderRadius: "60% 40% 30% 70% / 60% 30% 70% 40%",
-            background: "conic-gradient(from 180deg, #E4FF6E, #F5FFB0, #B9E62E, #E4FF6E)",
+            background: "conic-gradient(from 180deg, #9C8CFF, #C9BFFF, #6D46EA, #9C8CFF)",
             animation: "float 8s ease-in-out infinite"
           }}
         />
@@ -61,7 +72,7 @@ export default function HomePage() {
           className="absolute z-0 w-[100px] md:w-[150px] h-[100px] md:h-[150px] blur-[20px] md:blur-[30px] pointer-events-none"
           style={{
             top: "calc(50% - 80px)",
-            background: "radial-gradient(circle, rgba(215,255,63,0.35), transparent)",
+            background: "radial-gradient(circle, rgba(124,92,252,0.35), transparent)",
             animation: "pulse-orb 4s ease-in-out infinite"
           }}
         />
@@ -70,7 +81,7 @@ export default function HomePage() {
         <div className="relative z-10 flex flex-col items-center px-4 sm:px-6 w-full max-w-5xl text-center pb-12 md:pb-0">
 
           <div
-            className="mb-6 md:mb-8 px-3 sm:px-4 py-1.5 rounded-full text-[10px] sm:text-[11px] font-bold text-lime-300 bg-lime-400/10 border border-lime-400/20 tracking-[0.15em] sm:tracking-[0.2em] uppercase shadow-[0_2px_8px_rgba(215,255,63,0.06)] text-center max-w-[90vw]"
+            className="mb-6 md:mb-8 px-3 sm:px-4 py-1.5 rounded-full text-[10px] sm:text-[11px] font-bold text-violet-600 bg-violet-500/10 border border-violet-500/20 tracking-[0.15em] sm:tracking-[0.2em] uppercase shadow-[0_2px_8px_rgba(124,92,252,0.06)] text-center max-w-[90vw]"
             style={{ animation: "fadeInUp 0.6s ease 0.1s both" }}
           >
             Powered by Mistral AI + Pinecone
@@ -80,14 +91,14 @@ export default function HomePage() {
             className="font-[family-name:var(--font-syne)] text-[40px] sm:text-[56px] md:text-[80px] lg:text-[88px] font-[800] leading-[1.1] md:leading-[1.05] tracking-tight max-w-[900px] px-2"
             style={{ animation: "fadeInUp 0.6s ease 0.2s both" }}
           >
-            <span className="block text-white">Ask Anything</span>
-            <span className="block text-transparent bg-clip-text bg-gradient-to-r from-[#E4FF6E] to-[#B9E62E] drop-shadow-[0_2px_20px_rgba(215,255,63,0.25)] pb-2">
+            <span className="block text-gray-900">Ask Anything</span>
+            <span className="block text-transparent bg-clip-text bg-gradient-to-r from-[#9C8CFF] to-[#6D46EA] drop-shadow-[0_2px_20px_rgba(124,92,252,0.25)] pb-2">
               About Your PDFs.
             </span>
           </h1>
 
           <p
-            className="mt-5 md:mt-6 text-[15px] sm:text-[16px] md:text-[18px] font-medium text-gray-400 max-w-[90%] sm:max-w-[540px] leading-[1.6] md:leading-[1.6]"
+            className="mt-5 md:mt-6 text-[15px] sm:text-[16px] md:text-[18px] font-medium text-gray-500 max-w-[90%] sm:max-w-[540px] leading-[1.6] md:leading-[1.6]"
             style={{ animation: "fadeInUp 0.6s ease 0.35s both" }}
           >
             Upload any PDF. Ask questions. Get precise answers — streamed in real time from your document, not the internet.
@@ -95,10 +106,10 @@ export default function HomePage() {
 
           <Link
             href="/chat"
-            className="mt-8 md:mt-12 px-8 sm:px-10 py-3.5 sm:py-4 rounded-full bg-gradient-to-r from-[#E4FF6E] to-[#B9E62E] text-black text-[15px] md:text-[16px] font-bold group relative overflow-hidden transition-all duration-300 hover:scale-[1.02] active:scale-95"
+            className="mt-8 md:mt-12 px-8 sm:px-10 py-3.5 sm:py-4 rounded-full bg-gradient-to-r from-[#9C8CFF] to-[#6D46EA] text-white text-[15px] md:text-[16px] font-bold group relative overflow-hidden transition-all duration-300 hover:scale-[1.02] active:scale-95"
             style={{
               animation: "fadeInUp 0.6s ease 0.5s both",
-              boxShadow: "0 8px 30px rgba(215,255,63,0.3), 0 0 0 1px rgba(215,255,63,0.15)"
+              boxShadow: "0 8px 30px rgba(124,92,252,0.3), 0 0 0 1px rgba(124,92,252,0.15)"
             }}
           >
             <span className="relative z-10 flex items-center gap-2">
@@ -110,8 +121,8 @@ export default function HomePage() {
 
         {/* Scroll Indicator (Hidden on small mobile for better spacing) */}
         <div className="hidden sm:flex absolute bottom-8 md:bottom-12 flex-col items-center opacity-40 z-10">
-          <div className="w-[2px] h-[36px] md:h-[48px] bg-zinc-700 rounded-full relative overflow-hidden">
-            <div className="w-full h-1/2 bg-lime-400 absolute top-0 rounded-full" style={{ animation: "scrollDot 2s ease-in-out infinite" }} />
+          <div className="w-[2px] h-[36px] md:h-[48px] bg-gray-300 rounded-full relative overflow-hidden">
+            <div className="w-full h-1/2 bg-violet-500 absolute top-0 rounded-full" style={{ animation: "scrollDot 2s ease-in-out infinite" }} />
           </div>
         </div>
       </section>
@@ -125,51 +136,51 @@ export default function HomePage() {
           </span>
         </div>
 
-        <h2 className="text-center font-[family-name:var(--font-syne)] text-[32px] sm:text-[36px] md:text-[42px] font-[800] text-white mb-10 md:mb-16 tracking-tight px-2">
+        <h2 className="text-center font-[family-name:var(--font-syne)] text-[32px] sm:text-[36px] md:text-[42px] font-[800] text-gray-900 mb-10 md:mb-16 tracking-tight px-2">
           Intelligence from your documents
         </h2>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 md:gap-8">
 
           {/* Card 1 */}
-          <div className="group relative bg-zinc-900/60 border border-zinc-800 rounded-2xl md:rounded-3xl p-6 sm:p-8 md:p-[40px] overflow-hidden transition-all duration-400 hover:border-lime-400/30 hover:-translate-y-1.5 hover:shadow-[0_20px_40px_rgba(215,255,63,0.08)]">
-            <div className="absolute top-0 left-6 sm:left-8 md:left-[40px] right-6 sm:right-8 md:right-[40px] h-[2px] opacity-0 group-hover:opacity-100 transition-opacity duration-400" style={{ background: "linear-gradient(to right, transparent, #D7FF3F, transparent)" }} />
-            <div className="w-[48px] md:w-[56px] h-[48px] md:h-[56px] rounded-xl md:rounded-2xl bg-lime-400/10 flex items-center justify-center mb-5 md:mb-6 ring-1 ring-lime-400/20 group-hover:bg-lime-400 transition-colors duration-400">
-              <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-lime-400 group-hover:text-black transition-colors duration-400 md:w-[24px] md:h-[24px]">
+          <div className="group relative bg-gray-50/70 border border-gray-200 rounded-2xl md:rounded-3xl p-6 sm:p-8 md:p-[40px] overflow-hidden transition-all duration-400 hover:border-violet-500/30 hover:-translate-y-1.5 hover:shadow-[0_20px_40px_rgba(124,92,252,0.08)]">
+            <div className="absolute top-0 left-6 sm:left-8 md:left-[40px] right-6 sm:right-8 md:right-[40px] h-[2px] opacity-0 group-hover:opacity-100 transition-opacity duration-400" style={{ background: "linear-gradient(to right, transparent, #7C5CFC, transparent)" }} />
+            <div className="w-[48px] md:w-[56px] h-[48px] md:h-[56px] rounded-xl md:rounded-2xl bg-violet-500/10 flex items-center justify-center mb-5 md:mb-6 ring-1 ring-violet-500/20 group-hover:bg-violet-500 transition-colors duration-400">
+              <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-violet-500 group-hover:text-white transition-colors duration-400 md:w-[24px] md:h-[24px]">
                 <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/>
                 <polyline points="14 2 14 8 20 8"/>
               </svg>
             </div>
-            <h3 className="font-bold text-[18px] md:text-[19px] text-white mb-2 md:mb-3 tracking-tight">Upload Any PDF</h3>
-            <p className="text-[14px] md:text-[15px] text-gray-400 font-medium leading-[1.6]">
+            <h3 className="font-bold text-[18px] md:text-[19px] text-gray-900 mb-2 md:mb-3 tracking-tight">Upload Any PDF</h3>
+            <p className="text-[14px] md:text-[15px] text-gray-500 font-medium leading-[1.6]">
               Drop in research papers, textbooks, contracts — any PDF instantly becomes queryable.
             </p>
           </div>
 
           {/* Card 2 */}
-          <div className="group relative bg-zinc-900/60 border border-zinc-800 rounded-2xl md:rounded-3xl p-6 sm:p-8 md:p-[40px] overflow-hidden transition-all duration-400 hover:border-lime-400/30 hover:-translate-y-1.5 hover:shadow-[0_20px_40px_rgba(215,255,63,0.08)]">
-            <div className="absolute top-0 left-6 sm:left-8 md:left-[40px] right-6 sm:right-8 md:right-[40px] h-[2px] opacity-0 group-hover:opacity-100 transition-opacity duration-400" style={{ background: "linear-gradient(to right, transparent, #D7FF3F, transparent)" }} />
-            <div className="w-[48px] md:w-[56px] h-[48px] md:h-[56px] rounded-xl md:rounded-2xl bg-lime-400/10 flex items-center justify-center mb-5 md:mb-6 ring-1 ring-lime-400/20 group-hover:bg-lime-400 transition-colors duration-400">
-              <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-lime-400 group-hover:text-black transition-colors duration-400 md:w-[24px] md:h-[24px]">
+          <div className="group relative bg-gray-50/70 border border-gray-200 rounded-2xl md:rounded-3xl p-6 sm:p-8 md:p-[40px] overflow-hidden transition-all duration-400 hover:border-violet-500/30 hover:-translate-y-1.5 hover:shadow-[0_20px_40px_rgba(124,92,252,0.08)]">
+            <div className="absolute top-0 left-6 sm:left-8 md:left-[40px] right-6 sm:right-8 md:right-[40px] h-[2px] opacity-0 group-hover:opacity-100 transition-opacity duration-400" style={{ background: "linear-gradient(to right, transparent, #7C5CFC, transparent)" }} />
+            <div className="w-[48px] md:w-[56px] h-[48px] md:h-[56px] rounded-xl md:rounded-2xl bg-violet-500/10 flex items-center justify-center mb-5 md:mb-6 ring-1 ring-violet-500/20 group-hover:bg-violet-500 transition-colors duration-400">
+              <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-violet-500 group-hover:text-white transition-colors duration-400 md:w-[24px] md:h-[24px]">
                 <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
               </svg>
             </div>
-            <h3 className="font-bold text-[18px] md:text-[19px] text-white mb-2 md:mb-3 tracking-tight">Semantic Search</h3>
-            <p className="text-[14px] md:text-[15px] text-gray-400 font-medium leading-[1.6]">
+            <h3 className="font-bold text-[18px] md:text-[19px] text-gray-900 mb-2 md:mb-3 tracking-tight">Semantic Search</h3>
+            <p className="text-[14px] md:text-[15px] text-gray-500 font-medium leading-[1.6]">
               MMR retrieval pulls the most relevant, diverse chunks from your document automatically.
             </p>
           </div>
 
           {/* Card 3 */}
-          <div className="group relative bg-zinc-900/60 border border-zinc-800 rounded-2xl md:rounded-3xl p-6 sm:p-8 md:p-[40px] overflow-hidden transition-all duration-400 hover:border-lime-400/30 hover:-translate-y-1.5 hover:shadow-[0_20px_40px_rgba(215,255,63,0.08)] sm:col-span-2 lg:col-span-1 max-w-[600px] mx-auto lg:max-w-none w-full">
-            <div className="absolute top-0 left-6 sm:left-8 md:left-[40px] right-6 sm:right-8 md:right-[40px] h-[2px] opacity-0 group-hover:opacity-100 transition-opacity duration-400" style={{ background: "linear-gradient(to right, transparent, #D7FF3F, transparent)" }} />
-            <div className="w-[48px] md:w-[56px] h-[48px] md:h-[56px] rounded-xl md:rounded-2xl bg-lime-400/10 flex items-center justify-center mb-5 md:mb-6 ring-1 ring-lime-400/20 group-hover:bg-lime-400 transition-colors duration-400">
-              <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-lime-400 group-hover:text-black transition-colors duration-400 md:w-[24px] md:h-[24px]">
+          <div className="group relative bg-gray-50/70 border border-gray-200 rounded-2xl md:rounded-3xl p-6 sm:p-8 md:p-[40px] overflow-hidden transition-all duration-400 hover:border-violet-500/30 hover:-translate-y-1.5 hover:shadow-[0_20px_40px_rgba(124,92,252,0.08)] sm:col-span-2 lg:col-span-1 max-w-[600px] mx-auto lg:max-w-none w-full">
+            <div className="absolute top-0 left-6 sm:left-8 md:left-[40px] right-6 sm:right-8 md:right-[40px] h-[2px] opacity-0 group-hover:opacity-100 transition-opacity duration-400" style={{ background: "linear-gradient(to right, transparent, #7C5CFC, transparent)" }} />
+            <div className="w-[48px] md:w-[56px] h-[48px] md:h-[56px] rounded-xl md:rounded-2xl bg-violet-500/10 flex items-center justify-center mb-5 md:mb-6 ring-1 ring-violet-500/20 group-hover:bg-violet-500 transition-colors duration-400">
+              <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-violet-500 group-hover:text-white transition-colors duration-400 md:w-[24px] md:h-[24px]">
                 <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
               </svg>
             </div>
-            <h3 className="font-bold text-[18px] md:text-[19px] text-white mb-2 md:mb-3 tracking-tight">Real-time Streaming</h3>
-            <p className="text-[14px] md:text-[15px] text-gray-400 font-medium leading-[1.6]">
+            <h3 className="font-bold text-[18px] md:text-[19px] text-gray-900 mb-2 md:mb-3 tracking-tight">Real-time Streaming</h3>
+            <p className="text-[14px] md:text-[15px] text-gray-500 font-medium leading-[1.6]">
               Answers stream token by token from Mistral AI — no waiting, no loading spinner.
             </p>
           </div>
@@ -179,20 +190,20 @@ export default function HomePage() {
 
       {/* FINAL CTA SECTION */}
       <section
-        className="py-[80px] md:py-[100px] px-4 sm:px-6 text-center border-y border-zinc-800/60 bg-[#0A0A0C] relative overflow-hidden"
+        className="py-[80px] md:py-[100px] px-4 sm:px-6 text-center border-y border-gray-200/60 bg-white relative overflow-hidden"
       >
         <div
           className="absolute inset-0 pointer-events-none"
-          style={{ backgroundImage: "radial-gradient(circle at 50% 0%, rgba(215,255,63,0.05) 0%, transparent 70%)" }}
+          style={{ backgroundImage: "radial-gradient(circle at 50% 0%, rgba(124,92,252,0.05) 0%, transparent 70%)" }}
         />
         <div className="relative z-10">
-          <h2 className="font-[family-name:var(--font-syne)] text-[32px] sm:text-[36px] md:text-[48px] font-[800] text-white mb-8 md:mb-10 tracking-tight leading-tight">
+          <h2 className="font-[family-name:var(--font-syne)] text-[32px] sm:text-[36px] md:text-[48px] font-[800] text-gray-900 mb-8 md:mb-10 tracking-tight leading-tight">
             Ready to talk to your documents?
           </h2>
           <Link
             href="/chat"
-            className="inline-flex px-8 sm:px-12 py-3.5 sm:py-4.5 rounded-full bg-gradient-to-r from-[#E4FF6E] to-[#B9E62E] text-black text-[15px] md:text-[16px] font-bold group relative overflow-hidden transition-all duration-300 hover:scale-[1.02] active:scale-95"
-            style={{ boxShadow: "0 8px 30px rgba(215,255,63,0.3), 0 0 0 1px rgba(215,255,63,0.15)" }}
+            className="inline-flex px-8 sm:px-12 py-3.5 sm:py-4.5 rounded-full bg-gradient-to-r from-[#9C8CFF] to-[#6D46EA] text-white text-[15px] md:text-[16px] font-bold group relative overflow-hidden transition-all duration-300 hover:scale-[1.02] active:scale-95"
+            style={{ boxShadow: "0 8px 30px rgba(124,92,252,0.3), 0 0 0 1px rgba(124,92,252,0.15)" }}
           >
             <span className="relative z-10 flex items-center gap-2">
               Open ScholarAI <span className="group-hover:translate-x-1.5 transition-transform duration-300">→</span>
@@ -203,10 +214,10 @@ export default function HomePage() {
       </section>
 
       {/* FOOTER */}
-      <footer className="py-[32px] md:py-[40px] px-4 sm:px-6 md:px-12 bg-[#0A0A0C] flex flex-col md:flex-row items-center justify-between gap-4 md:gap-6">
+      <footer className="py-[32px] md:py-[40px] px-4 sm:px-6 md:px-12 bg-white flex flex-col md:flex-row items-center justify-between gap-4 md:gap-6">
         <div className="flex items-center gap-1">
-          <span className="font-[family-name:var(--font-syne)] text-[16px] md:text-[18px] font-bold text-white">Scholar</span>
-          <span className="font-[family-name:var(--font-syne)] text-[16px] md:text-[18px] font-bold text-lime-400">AI</span>
+          <span className="font-[family-name:var(--font-syne)] text-[16px] md:text-[18px] font-bold text-gray-900">Scholar</span>
+          <span className="font-[family-name:var(--font-syne)] text-[16px] md:text-[18px] font-bold text-violet-500">AI</span>
         </div>
         <div className="text-[12px] md:text-[13px] font-medium text-gray-500 text-center tracking-wide">
           Built with Mistral AI · Pinecone · Next.js

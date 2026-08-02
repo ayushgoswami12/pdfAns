@@ -1,3 +1,4 @@
+// FILE: app/chat/page.tsx
 "use client";
 
 import { useState, useRef, useEffect, useCallback, Suspense } from "react";
@@ -202,13 +203,14 @@ function ChatPageInner() {
   const historyItems: HistoryItem[] = sessions.map((s) => ({ id: s.id, title: s.title }));
 
   return (
-    <div className="flex h-[100dvh] w-full overflow-hidden bg-[#0A0A0C] text-gray-100 relative antialiased selection:bg-lime-300 selection:text-black">
+    <div className="flex h-[100dvh] w-full overflow-hidden bg-white text-gray-900 relative antialiased selection:bg-violet-200 selection:text-violet-900">
       <Sidebar
         active="new-chat"
         showRecentHistory
         historyItems={historyItems}
         activeHistoryId={activeSessionId}
         onSelectHistory={handleSelectHistory}
+        onNewChat={handleNewChat}
         isOpen={isSidebarOpen}
         onClose={() => setIsSidebarOpen(false)}
       />
@@ -225,22 +227,22 @@ function ChatPageInner() {
         <div className="flex-1 overflow-y-auto px-4 sm:px-8 custom-scrollbar flex flex-col pt-6 pb-4">
           {isUploading && (
             <div className="sticky top-0 z-10 w-full flex justify-center mb-6">
-              <div className="bg-zinc-900/90 backdrop-blur border border-zinc-800 shadow-sm rounded-full px-5 py-2 flex items-center gap-3">
-                <span className="w-3.5 h-3.5 border-[2.5px] border-zinc-700 border-t-lime-400 rounded-full animate-spin" />
-                <span className="text-[13px] text-gray-300 font-medium">Uploading & indexing…</span>
+              <div className="bg-white/90 backdrop-blur border border-gray-200 shadow-sm rounded-full px-5 py-2 flex items-center gap-3">
+                <span className="w-3.5 h-3.5 border-[2.5px] border-gray-300 border-t-violet-500 rounded-full animate-spin" />
+                <span className="text-[13px] text-gray-700 font-medium">Uploading & indexing…</span>
               </div>
             </div>
           )}
 
           {messages.length === 0 ? (
             <div className="flex-1 flex flex-col items-center justify-center max-w-2xl mx-auto w-full px-4 text-center pb-16">
-              <div className="w-20 h-20 mb-8 rounded-3xl flex items-center justify-center shadow-[0_8px_32px_rgba(215,255,63,0.15)] ring-1 ring-lime-400/20 bg-gradient-to-br from-zinc-900 to-zinc-950">
-                <IconDiamond className="w-10 h-10 text-lime-400" />
+              <div className="w-20 h-20 mb-8 rounded-3xl flex items-center justify-center shadow-[0_8px_32px_rgba(124,92,252,0.15)] ring-1 ring-violet-500/20 bg-gradient-to-br from-gray-50 to-gray-100">
+                <IconDiamond className="w-10 h-10 text-violet-500" />
               </div>
-              <h1 className="font-brand text-4xl sm:text-5xl font-bold mb-4 tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-white via-lime-200 to-lime-400">
+              <h1 className="font-brand text-4xl sm:text-5xl font-bold mb-4 tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-gray-900 via-violet-500 to-violet-700">
                 What do you want to explore today?
               </h1>
-              <p className="text-[17px] mt-2 font-medium text-gray-400 max-w-md leading-relaxed">
+              <p className="text-[17px] mt-2 font-medium text-gray-500 max-w-md leading-relaxed">
                 {sourcesTotal > 0
                   ? `${sourcesTotal} source${sourcesTotal === 1 ? "" : "s"} available — ask anything, or mention a filename to focus on one.`
                   : "Upload a document from Sources to begin analyzing, or just start typing to explore."}
@@ -251,22 +253,22 @@ function ChatPageInner() {
               {messages.map((msg, idx) => (
                 <div key={idx} className={`flex w-full ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
                   {msg.role === "user" ? (
-                    <div className="px-5 py-3.5 whitespace-pre-wrap break-words text-[14.5px] leading-relaxed max-w-[85%] sm:max-w-[75%] rounded-[20px] rounded-br-sm bg-zinc-800 text-gray-100 border border-zinc-700/60">
+                    <div className="px-5 py-3.5 whitespace-pre-wrap break-words text-[14.5px] leading-relaxed max-w-[85%] sm:max-w-[75%] rounded-[20px] rounded-br-sm bg-gray-100 text-gray-900 border border-gray-300/60">
                       {msg.content}
                     </div>
                   ) : (
                     <div className="flex gap-3.5 max-w-[95%] sm:max-w-[88%]">
-                      <div className="w-8 h-8 rounded-full shrink-0 flex items-center justify-center text-black mt-0.5" style={{ background: ACCENT_GRADIENT }}>
+                      <div className="w-8 h-8 rounded-full shrink-0 flex items-center justify-center text-white mt-0.5" style={{ background: ACCENT_GRADIENT }}>
                         <IconDiamond className="w-4 h-4" />
                       </div>
-                      <div className="px-5 py-5 rounded-[20px] rounded-tl-sm bg-zinc-900 border border-zinc-800/80 shadow-[0_4px_20px_rgba(0,0,0,0.25)] min-w-0 flex-1">
+                      <div className="px-5 py-5 rounded-[20px] rounded-tl-sm bg-gray-50 border border-gray-200/80 shadow-[0_4px_20px_rgba(0,0,0,0.25)] min-w-0 flex-1">
                         {msg.content ? (
-                          <p className="text-[14.5px] leading-relaxed text-gray-100 m-0 whitespace-pre-wrap break-words">{msg.content}</p>
+                          <p className="text-[14.5px] leading-relaxed text-gray-900 m-0 whitespace-pre-wrap break-words">{msg.content}</p>
                         ) : isTyping && idx === messages.length - 1 ? (
                           <div className="flex items-center gap-1.5 h-6">
-                            <span className="w-2 h-2 rounded-full animate-bounce bg-lime-400 [animation-delay:0ms]" />
-                            <span className="w-2 h-2 rounded-full animate-bounce bg-lime-400 [animation-delay:150ms]" />
-                            <span className="w-2 h-2 rounded-full animate-bounce bg-lime-400 [animation-delay:300ms]" />
+                            <span className="w-2 h-2 rounded-full animate-bounce bg-violet-500 [animation-delay:0ms]" />
+                            <span className="w-2 h-2 rounded-full animate-bounce bg-violet-500 [animation-delay:150ms]" />
+                            <span className="w-2 h-2 rounded-full animate-bounce bg-violet-500 [animation-delay:300ms]" />
                           </div>
                         ) : null}
                       </div>
@@ -280,15 +282,15 @@ function ChatPageInner() {
         </div>
 
         <div className="w-full px-4 sm:px-8 pb-6 pt-4 shrink-0 relative">
-          <div className="absolute top-0 left-0 w-full h-12 -mt-12 bg-gradient-to-t from-[#0A0A0C] to-transparent pointer-events-none" />
+          <div className="absolute top-0 left-0 w-full h-12 -mt-12 bg-gradient-to-t from-white to-transparent pointer-events-none" />
           <div className="max-w-3xl mx-auto relative">
-            <div className="flex items-end gap-2 rounded-[28px] p-2 bg-zinc-900/80 backdrop-blur-xl border border-zinc-800 focus-within:border-lime-400/50 focus-within:ring-4 focus-within:ring-lime-400/10 transition-all">
+            <div className="flex items-end gap-2 rounded-[28px] p-2 bg-white/80 backdrop-blur-xl border border-gray-200 focus-within:border-violet-500/50 focus-within:ring-4 focus-within:ring-violet-500/10 transition-all">
               <button
                 onClick={() => fileInputRef.current?.click()}
                 title="Upload a source"
-                className="mb-0.5 ml-0.5 w-10 h-10 shrink-0 rounded-full bg-zinc-800 text-gray-400 hover:text-lime-400 hover:bg-lime-400/10 flex items-center justify-center transition-colors"
+                className="mb-0.5 ml-0.5 w-10 h-10 shrink-0 rounded-full bg-gray-100 text-gray-500 hover:text-violet-600 hover:bg-violet-500/10 flex items-center justify-center transition-colors"
               >
-                <IconPlus width={18} height={18} className={isUploading ? "animate-pulse text-lime-400" : ""} />
+                <IconPlus width={18} height={18} className={isUploading ? "animate-pulse text-violet-500" : ""} />
               </button>
 
               <textarea
@@ -299,11 +301,11 @@ function ChatPageInner() {
                 onCompositionStart={() => (isComposingRef.current = true)}
                 onCompositionEnd={() => (isComposingRef.current = false)}
                 placeholder="Ask ScholarAI or upload sources..."
-                className="flex-1 resize-none custom-scrollbar text-[14.5px] py-3 min-h-[44px] max-h-[200px] font-medium outline-none bg-transparent border-none text-gray-100 placeholder:text-gray-500 leading-relaxed"
+                className="flex-1 resize-none custom-scrollbar text-[14.5px] py-3 min-h-[44px] max-h-[200px] font-medium outline-none bg-transparent border-none text-gray-900 placeholder:text-gray-500 leading-relaxed"
                 rows={1}
               />
 
-              <button title="Voice input (not wired up yet)" disabled className="mb-0.5 w-10 h-10 shrink-0 rounded-full text-gray-600 flex items-center justify-center cursor-not-allowed">
+              <button title="Voice input (not wired up yet)" disabled className="mb-0.5 w-10 h-10 shrink-0 rounded-full text-gray-400 flex items-center justify-center cursor-not-allowed">
                 <IconMic />
               </button>
 
@@ -311,7 +313,7 @@ function ChatPageInner() {
                 onClick={sendMessage}
                 disabled={!canSend}
                 className={`mb-0.5 mr-0.5 w-10 h-10 shrink-0 rounded-full flex items-center justify-center transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
-                  canSend ? "text-black hover:scale-105 active:scale-95" : "bg-zinc-800 text-gray-600"
+                  canSend ? "text-white hover:scale-105 active:scale-95" : "bg-gray-100 text-gray-400"
                 }`}
                 style={canSend ? { background: ACCENT_GRADIENT } : undefined}
               >
@@ -319,7 +321,7 @@ function ChatPageInner() {
               </button>
             </div>
             <div className="flex items-center justify-center mt-3">
-              <span className="text-[11.5px] font-medium text-gray-600">
+              <span className="text-[11.5px] font-medium text-gray-400">
                 ScholarAI can make mistakes. Verify important info.
               </span>
             </div>

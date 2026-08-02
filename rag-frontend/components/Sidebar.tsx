@@ -27,9 +27,20 @@ interface SidebarProps {
   historyItems?: HistoryItem[];
   activeHistoryId?: string | number | null;
   onSelectHistory?: (id: string | number) => void;
+  /** When on the chat page itself, clicking "New Chat" needs to reset
+   *  local state directly — navigating to /chat is a no-op if you're
+   *  already there, and even from elsewhere it would just have the
+   *  session-restore effect on the chat page immediately reload the
+   *  last conversation from localStorage, undoing "new chat" instantly.
+   *  Pass this from the chat page; other pages can leave it out and
+   *  just navigate + rely on the localStorage clear below. */
+  onNewChat?: () => void;
   isOpen?: boolean;
   onClose?: () => void;
 }
+
+// Must match the key used in app/chat/page.tsx's session-restore effect.
+const LAST_SESSION_KEY = "scholarai:lastSessionId";
 
 /**
  * NOTE on the footer: the Sources and Library screenshots show a
@@ -43,6 +54,7 @@ export default function Sidebar({
   active,
   showRecentHistory = false,
   historyItems = [],
+  onNewChat,
   activeHistoryId = null,
   onSelectHistory,
   isOpen = false,
@@ -50,13 +62,13 @@ export default function Sidebar({
 }: SidebarProps) {
   return (
     <aside
-      className={`fixed md:relative top-0 left-0 h-full z-50 w-[85%] max-w-[280px] md:max-w-none md:w-[264px] flex flex-col shrink-0 px-5 py-7 bg-[#111113]/95 backdrop-blur-xl border-r border-zinc-800/80 transition-transform duration-400 ease-[cubic-bezier(0.16,1,0.3,1)] ${
+      className={`fixed md:relative top-0 left-0 h-full z-50 w-[85%] max-w-[280px] md:max-w-none md:w-[264px] flex flex-col shrink-0 px-5 py-7 bg-white/95 backdrop-blur-xl border-r border-gray-200/80 transition-transform duration-400 ease-[cubic-bezier(0.16,1,0.3,1)] ${
         isOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
       }`}
     >
       <div className="flex items-center justify-between mb-9 pl-1">
         <div className="flex flex-col leading-tight select-none">
-          <span className="font-brand text-[17px] font-bold tracking-wide text-lime-300">ScholarAI</span>
+          <span className="font-brand text-[17px] font-bold tracking-wide text-violet-600">ScholarAI</span>
           <span className="text-[10px] font-semibold text-gray-500 tracking-[0.12em] uppercase mt-0.5">
             Advanced Scholar
           </span>
@@ -64,7 +76,7 @@ export default function Sidebar({
         {onClose && (
           <button
             onClick={onClose}
-            className="md:hidden w-8 h-8 rounded-lg bg-zinc-900 border border-zinc-800 text-gray-400 hover:text-gray-100 flex items-center justify-center"
+            className="md:hidden w-8 h-8 rounded-lg bg-gray-50 border border-gray-200 text-gray-500 hover:text-gray-900 flex items-center justify-center"
           >
             <IconClose />
           </button>
@@ -74,8 +86,12 @@ export default function Sidebar({
       <nav className="flex flex-col gap-1 mb-7">
         <Link
           href="/chat"
+          onClick={() => {
+            if (typeof window !== "undefined") localStorage.removeItem(LAST_SESSION_KEY);
+            onNewChat?.();
+          }}
           className={`flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-[13.5px] font-medium transition-colors ${
-            active === "new-chat" ? "bg-lime-400/15 text-lime-300" : "text-gray-400 hover:text-gray-200 hover:bg-zinc-900"
+            active === "new-chat" ? "bg-violet-500/15 text-violet-600" : "text-gray-500 hover:text-gray-800 hover:bg-gray-50"
           }`}
         >
           <IconPlus width={16} height={16} />
@@ -84,7 +100,7 @@ export default function Sidebar({
         <Link
           href="/library"
           className={`flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-[13.5px] font-medium transition-colors ${
-            active === "library" ? "bg-lime-400/15 text-lime-300" : "text-gray-400 hover:text-gray-200 hover:bg-zinc-900"
+            active === "library" ? "bg-violet-500/15 text-violet-600" : "text-gray-500 hover:text-gray-800 hover:bg-gray-50"
           }`}
         >
           <IconFile width={16} height={16} />
@@ -93,7 +109,7 @@ export default function Sidebar({
         <Link
           href="/settings"
           className={`flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-[13.5px] font-medium transition-colors ${
-            active === "settings" ? "bg-lime-400/15 text-lime-300" : "text-gray-400 hover:text-gray-200 hover:bg-zinc-900"
+            active === "settings" ? "bg-violet-500/15 text-violet-600" : "text-gray-500 hover:text-gray-800 hover:bg-gray-50"
           }`}
         >
           <IconSettings width={16} height={16} />
@@ -114,7 +130,7 @@ export default function Sidebar({
                   key={item.id}
                   onClick={() => onSelectHistory?.(item.id)}
                   className={`w-full flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl text-left transition-colors ${
-                    isActive ? "bg-lime-400/15 text-lime-300" : "text-gray-400 hover:text-gray-200 hover:bg-zinc-900"
+                    isActive ? "bg-violet-500/15 text-violet-600" : "text-gray-500 hover:text-gray-800 hover:bg-gray-50"
                   }`}
                 >
                   <IconMessage width={14} height={14} className="shrink-0" />
@@ -130,7 +146,7 @@ export default function Sidebar({
 
       <div className="mt-6 flex flex-col gap-3">
         <button
-          className="w-full py-3 rounded-xl text-black text-[13.5px] font-bold shadow-[0_6px_16px_rgba(215,255,63,0.25)] hover:shadow-[0_8px_20px_rgba(215,255,63,0.4)] transition-shadow"
+          className="w-full py-3 rounded-xl text-white text-[13.5px] font-bold shadow-[0_6px_16px_rgba(124,92,252,0.25)] hover:shadow-[0_8px_20px_rgba(124,92,252,0.4)] transition-shadow"
           style={{ background: ACCENT_GRADIENT }}
         >
           Upgrade to Pro
@@ -138,20 +154,20 @@ export default function Sidebar({
 
         <div className="flex items-center gap-2.5 px-1">
           <div
-            className="w-8 h-8 rounded-full flex items-center justify-center text-black text-[11px] font-bold shrink-0"
+            className="w-8 h-8 rounded-full flex items-center justify-center text-white text-[11px] font-bold shrink-0"
             style={{ background: ACCENT_GRADIENT }}
           >
             AS
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-[12.5px] font-semibold text-gray-200 truncate m-0">Alex Scholar</p>
+            <p className="text-[12.5px] font-semibold text-gray-800 truncate m-0">Alex Scholar</p>
             <p className="text-[11px] text-gray-500 m-0">Free Plan</p>
           </div>
         </div>
 
         <Link
           href="/help"
-          className="flex items-center gap-2 px-2 text-[12px] font-medium text-gray-500 hover:text-gray-300 transition-colors"
+          className="flex items-center gap-2 px-2 text-[12px] font-medium text-gray-500 hover:text-gray-700 transition-colors"
         >
           <IconHelp width={14} height={14} />
           Help Center
