@@ -244,6 +244,13 @@ export function IconHelp(props: IconProps) {
     </svg>
   );
 }
+export function IconCheck(props: IconProps) {
+  return (
+    <svg {...base({ width: 16, height: 16, ...props })} strokeWidth={2.5}>
+      <polyline points="20 6 9 17 4 12" />
+    </svg>
+  );
+}
 export function IconWipe(props: IconProps) {
   return (
     <svg {...base({ width: 13, height: 13, ...props })}>

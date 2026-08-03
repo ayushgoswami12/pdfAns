@@ -1,3 +1,4 @@
+// FILE: components/Sidebar.tsx
 "use client";
 
 import Link from "next/link";
@@ -62,21 +63,22 @@ export default function Sidebar({
 }: SidebarProps) {
   return (
     <aside
-      className={`fixed md:relative top-0 left-0 h-full z-50 w-[85%] max-w-[280px] md:max-w-none md:w-[264px] flex flex-col shrink-0 px-5 py-7 bg-white/95 backdrop-blur-xl border-r border-gray-200/80 transition-transform duration-400 ease-[cubic-bezier(0.16,1,0.3,1)] ${
+      className={`fixed md:relative top-0 left-0 h-full z-50 w-[85%] max-w-[280px] md:max-w-none md:w-[264px] flex flex-col shrink-0 px-5 py-7 bg-purple-800/10 backdrop-blur-xl border-r border-purple-100 transition-transform duration-400 ease-[cubic-bezier(0.16,1,0.3,1)] ${
         isOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
       }`}
     >
       <div className="flex items-center justify-between mb-9 pl-1">
-        <div className="flex flex-col leading-tight select-none">
-          <span className="font-brand text-[17px] font-bold tracking-wide text-violet-600">ScholarAI</span>
+        {/* Updated to Link to act as a clickable home button */}
+        <Link href="/" className="flex flex-col leading-tight select-none hover:opacity-70 transition-opacity cursor-pointer">
+          <span className="font-brand text-[17px] font-bold tracking-wide text-purple-600">ScholarAI</span>
           <span className="text-[10px] font-semibold text-gray-500 tracking-[0.12em] uppercase mt-0.5">
             Advanced Scholar
           </span>
-        </div>
+        </Link>
         {onClose && (
           <button
             onClick={onClose}
-            className="md:hidden w-8 h-8 rounded-lg bg-gray-50 border border-gray-200 text-gray-500 hover:text-gray-900 flex items-center justify-center"
+            className="md:hidden w-8 h-8 rounded-lg bg-purple-50 border border-purple-100 text-purple-500 hover:text-purple-700 flex items-center justify-center"
           >
             <IconClose />
           </button>
@@ -91,7 +93,7 @@ export default function Sidebar({
             onNewChat?.();
           }}
           className={`flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-[13.5px] font-medium transition-colors ${
-            active === "new-chat" ? "bg-violet-500/15 text-violet-600" : "text-gray-500 hover:text-gray-800 hover:bg-gray-50"
+            active === "new-chat" ? "bg-purple-500/15 text-purple-600" : "text-gray-500 hover:text-purple-600 hover:bg-purple-50"
           }`}
         >
           <IconPlus width={16} height={16} />
@@ -100,7 +102,7 @@ export default function Sidebar({
         <Link
           href="/library"
           className={`flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-[13.5px] font-medium transition-colors ${
-            active === "library" ? "bg-violet-500/15 text-violet-600" : "text-gray-500 hover:text-gray-800 hover:bg-gray-50"
+            active === "library" ? "bg-purple-500/15 text-purple-600" : "text-gray-500 hover:text-purple-600 hover:bg-purple-50"
           }`}
         >
           <IconFile width={16} height={16} />
@@ -109,7 +111,7 @@ export default function Sidebar({
         <Link
           href="/settings"
           className={`flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-[13.5px] font-medium transition-colors ${
-            active === "settings" ? "bg-violet-500/15 text-violet-600" : "text-gray-500 hover:text-gray-800 hover:bg-gray-50"
+            active === "settings" ? "bg-purple-500/15 text-purple-600" : "text-gray-500 hover:text-purple-600 hover:bg-purple-50"
           }`}
         >
           <IconSettings width={16} height={16} />
@@ -130,7 +132,7 @@ export default function Sidebar({
                   key={item.id}
                   onClick={() => onSelectHistory?.(item.id)}
                   className={`w-full flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl text-left transition-colors ${
-                    isActive ? "bg-violet-500/15 text-violet-600" : "text-gray-500 hover:text-gray-800 hover:bg-gray-50"
+                    isActive ? "bg-purple-500/15 text-purple-600" : "text-gray-500 hover:text-purple-600 hover:bg-purple-50"
                   }`}
                 >
                   <IconMessage width={14} height={14} className="shrink-0" />
@@ -146,7 +148,7 @@ export default function Sidebar({
 
       <div className="mt-6 flex flex-col gap-3">
         <button
-          className="w-full py-3 rounded-xl text-white text-[13.5px] font-bold shadow-[0_6px_16px_rgba(124,92,252,0.25)] hover:shadow-[0_8px_20px_rgba(124,92,252,0.4)] transition-shadow"
+          className="w-full py-3 rounded-xl text-white text-[13.5px] font-bold shadow-[0_6px_16px_rgba(168,85,247,0.25)] hover:shadow-[0_8px_20px_rgba(168,85,247,0.4)] transition-shadow"
           style={{ background: ACCENT_GRADIENT }}
         >
           Upgrade to Pro
@@ -154,13 +156,13 @@ export default function Sidebar({
 
         <div className="flex items-center gap-2.5 px-1">
           <div
-            className="w-8 h-8 rounded-full flex items-center justify-center text-white text-[11px] font-bold shrink-0"
+            className="w-8 h-8 rounded-full flex items-center justify-center text-white text-[11px] font-bold shrink-0 ring-2 ring-purple-200"
             style={{ background: ACCENT_GRADIENT }}
           >
-            AS
+            LS
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-[12.5px] font-semibold text-gray-800 truncate m-0">Alex Scholar</p>
+            <p className="text-[12.5px] font-semibold text-gray-800 truncate m-0">LDRP STUDENT</p>
             <p className="text-[11px] text-gray-500 m-0">Free Plan</p>
           </div>
         </div>

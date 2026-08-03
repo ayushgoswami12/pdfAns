@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import Sidebar, { HistoryItem } from "@/components/Sidebar";
 import TopBar from "@/components/TopBar";
 import { IconDiamond, IconPlus, IconMic, IconSend } from "@/components/icons";
+import UploadIndicatorStack, { UploadJob } from "@/components/UploadIndicator";
 import { ACCENT_GRADIENT } from "@/lib/theme";
 import {
   listSessions,
@@ -35,7 +36,7 @@ function ChatPageInner() {
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [isUploading, setIsUploading] = useState(false);
+  const [uploadJobs, setUploadJobs] = useState<UploadJob[]>([]);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -178,18 +179,46 @@ function ChatPageInner() {
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
-    setIsUploading(true);
+
+    const newJobs: UploadJob[] = Array.from(files).map((file) => ({
+      id: Math.random().toString(36).slice(2, 9),
+      filename: file.name,
+      progress: 0,
+      status: "uploading",
+    }));
+    setUploadJobs((prev) => [...prev, ...newJobs]);
+
+    await Promise.all(
+      Array.from(files).map(async (file, i) => {
+        const jobId = newJobs[i].id;
+        try {
+          await uploadFile(file, (pct) =>
+            setUploadJobs((prev) => prev.map((j) => (j.id === jobId ? { ...j, progress: pct } : j)))
+          );
+          setUploadJobs((prev) => prev.map((j) => (j.id === jobId ? { ...j, status: "success", progress: 100 } : j)));
+          // Let the checkmark animation actually be seen before the card leaves.
+          setTimeout(() => {
+            setUploadJobs((prev) => prev.filter((j) => j.id !== jobId));
+          }, 1400);
+        } catch (err) {
+          setUploadJobs((prev) =>
+            prev.map((j) =>
+              j.id === jobId
+                ? { ...j, status: "error", errorMessage: err instanceof Error ? err.message : "Upload failed" }
+                : j
+            )
+          );
+        }
+      })
+    );
+
     try {
-      await Promise.all(Array.from(files).map((f) => uploadFile(f)));
       const rows = await listSources();
       setSourcesTotal(rows.length);
     } catch {
-      // A failed upload here doesn't need to interrupt the chat — the
-      // Sources page is the place to see/retry failures in detail.
-    } finally {
-      setIsUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
+      // Non-fatal — Sources page is the source of truth if this miscounts.
     }
+    if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
   const handleComposerKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -225,12 +254,9 @@ function ChatPageInner() {
         />
 
         <div className="flex-1 overflow-y-auto px-4 sm:px-8 custom-scrollbar flex flex-col pt-6 pb-4">
-          {isUploading && (
+          {uploadJobs.length > 0 && (
             <div className="sticky top-0 z-10 w-full flex justify-center mb-6">
-              <div className="bg-white/90 backdrop-blur border border-gray-200 shadow-sm rounded-full px-5 py-2 flex items-center gap-3">
-                <span className="w-3.5 h-3.5 border-[2.5px] border-gray-300 border-t-violet-500 rounded-full animate-spin" />
-                <span className="text-[13px] text-gray-700 font-medium">Uploading & indexing…</span>
-              </div>
+              <UploadIndicatorStack jobs={uploadJobs} />
             </div>
           )}
 
@@ -284,13 +310,13 @@ function ChatPageInner() {
         <div className="w-full px-4 sm:px-8 pb-6 pt-4 shrink-0 relative">
           <div className="absolute top-0 left-0 w-full h-12 -mt-12 bg-gradient-to-t from-white to-transparent pointer-events-none" />
           <div className="max-w-3xl mx-auto relative">
-            <div className="flex items-end gap-2 rounded-[28px] p-2 bg-white/80 backdrop-blur-xl border border-gray-200 focus-within:border-violet-500/50 focus-within:ring-4 focus-within:ring-violet-500/10 transition-all">
+            <div className="flex items-end gap-2 rounded-[28px] p-2 bg-white/80 backdrop-blur-xl border border-gray-200 focus-within:border-violet-500/50 focus-within:ring-4 focus-within:ring-violet-500/10 transition-[border-color,box-shadow] duration-200">
               <button
                 onClick={() => fileInputRef.current?.click()}
                 title="Upload a source"
                 className="mb-0.5 ml-0.5 w-10 h-10 shrink-0 rounded-full bg-gray-100 text-gray-500 hover:text-violet-600 hover:bg-violet-500/10 flex items-center justify-center transition-colors"
               >
-                <IconPlus width={18} height={18} className={isUploading ? "animate-pulse text-violet-500" : ""} />
+                <IconPlus width={18} height={18} className={uploadJobs.length > 0 ? "animate-pulse text-violet-500" : ""} />
               </button>
 
               <textarea
@@ -301,7 +327,7 @@ function ChatPageInner() {
                 onCompositionStart={() => (isComposingRef.current = true)}
                 onCompositionEnd={() => (isComposingRef.current = false)}
                 placeholder="Ask ScholarAI or upload sources..."
-                className="flex-1 resize-none custom-scrollbar text-[14.5px] py-3 min-h-[44px] max-h-[200px] font-medium outline-none bg-transparent border-none text-gray-900 placeholder:text-gray-500 leading-relaxed"
+                className="flex-1 resize-none custom-scrollbar text-[14.5px] py-3 min-h-[44px] max-h-[200px] font-medium outline-none bg-transparent border-none text-gray-900 placeholder:text-gray-500 leading-relaxed transition-[height] duration-150 ease-out"
                 rows={1}
               />
 
