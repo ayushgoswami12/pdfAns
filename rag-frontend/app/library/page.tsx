@@ -4,9 +4,9 @@
 import { useEffect, useMemo, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Sidebar from "@/components/Sidebar";
-import { IconSearch, IconFile, IconPlus, IconUploadCloud } from "@/components/icons";
+import { IconSearch, IconFile, IconPlus, IconUploadCloud, IconTrash } from "@/components/icons";
 import { ACCENT_GRADIENT } from "@/lib/theme";
-import { listSources, uploadFile, SourceRow } from "@/lib/api";
+import { listSources, uploadFile, deleteSource, SourceRow } from "@/lib/api";
 
 const FILTERS: { id: "all" | "pdf" | "link" | "text"; label: string }[] = [
   { id: "all", label: "All" },
@@ -68,6 +68,16 @@ export default function LibraryPage() {
 
   const askAbout = (filename: string) => {
     router.push(`/chat?file=${encodeURIComponent(filename)}`);
+  };
+
+  const handleDelete = async (filename: string) => {
+    const previous = sources;
+    setSources((prev) => prev.filter((s) => s.filename !== filename));
+    try {
+      await deleteSource(filename);
+    } catch {
+      setSources(previous); // roll back if the delete actually failed
+    }
   };
 
   return (
@@ -135,6 +145,16 @@ export default function LibraryPage() {
                 <div key={m.id} className="rounded-3xl border border-gray-200 bg-gray-50/60 overflow-hidden flex flex-col group">
                   <div className="h-28 bg-gradient-to-br from-violet-500/15 to-gray-100 flex items-center justify-center relative">
                     <IconFile width={30} height={30} className="text-gray-900/25" />
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDelete(m.filename);
+                      }}
+                      aria-label={`Remove ${m.filename}`}
+                      className="absolute top-2.5 right-2.5 w-7 h-7 rounded-full bg-white/90 backdrop-blur text-gray-500 hover:text-red-500 hover:bg-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-sm"
+                    >
+                      <IconTrash width={13} height={13} />
+                    </button>
                   </div>
                   <div className="p-4 flex flex-col gap-2.5 flex-1">
                     <div>

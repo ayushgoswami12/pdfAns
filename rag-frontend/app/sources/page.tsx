@@ -106,7 +106,7 @@ export default function SourcesPage() {
 
   return (
     <div className="flex h-[100dvh] w-full overflow-hidden bg-white text-gray-900 antialiased">
-      <Sidebar active="library" isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
+      <Sidebar active="sources" isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
 
       <main className="flex-1 flex flex-col min-w-0">
         <TopBar mode="global" activeTab="sources" onOpenSidebar={() => setIsSidebarOpen(true)} />

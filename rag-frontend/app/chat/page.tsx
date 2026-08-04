@@ -2,7 +2,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback, Suspense } from "react";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import Sidebar, { HistoryItem } from "@/components/Sidebar";
 import TopBar from "@/components/TopBar";
 import { IconDiamond, IconPlus, IconMic, IconSend } from "@/components/icons";
@@ -11,6 +11,7 @@ import { ACCENT_GRADIENT } from "@/lib/theme";
 import {
   listSessions,
   createSession,
+  deleteSession,
   getSessionMessages,
   streamChat,
   listSources,
@@ -25,12 +26,18 @@ interface ChatMessage {
 
 function ChatPageInner() {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const scopedFile = searchParams.get("file");
 
   const [sessions, setSessions] = useState<SessionRow[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<number | null>(null);
   const [sessionTitle, setSessionTitle] = useState("New Chat");
   const [sourcesTotal, setSourcesTotal] = useState(0);
+  // Shown immediately on a fresh landing rather than waiting on the
+  // (sometimes slow, e.g. Render cold-start) /api/sources call to decide
+  // whether it's worth showing — gives the user something actionable to
+  // do right away instead of staring at a slowly-populating sidebar.
+  const [showAddSourcesModal, setShowAddSourcesModal] = useState(false);
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
@@ -56,11 +63,18 @@ function ChatPageInner() {
   }, []);
 
   const LAST_SESSION_KEY = "scholarai:lastSessionId";
+  const DISMISSED_KEY = "scholarai:dismissedSourcesPrompt";
 
   useEffect(() => {
     refreshSessions();
     listSources()
-      .then((rows) => setSourcesTotal(rows.length))
+      .then((rows) => {
+        setSourcesTotal(rows.length);
+        // If sources genuinely do exist, the prompt is moot — close it
+        // rather than leave it sitting open once the (possibly slow)
+        // fetch finally resolves and contradicts what it's suggesting.
+        if (rows.length > 0) setShowAddSourcesModal(false);
+      })
       .catch(() => {});
 
     // Chat's local state is wiped every time this route unmounts (e.g.
@@ -70,10 +84,23 @@ function ChatPageInner() {
     // "Ask AI" deep-link, since that should start a fresh conversation.
     if (!scopedFile) {
       const savedId = typeof window !== "undefined" ? localStorage.getItem(LAST_SESSION_KEY) : null;
-      if (savedId) loadSession(Number(savedId));
+      if (savedId) {
+        loadSession(Number(savedId));
+      } else {
+        // Fresh landing, no restored session — show the prompt right
+        // away, unless the user already dismissed it this browser
+        // session (don't nag on every navigation back to /chat).
+        const dismissed = typeof window !== "undefined" ? sessionStorage.getItem(DISMISSED_KEY) : null;
+        if (!dismissed) setShowAddSourcesModal(true);
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshSessions]);
+
+  const dismissAddSourcesModal = () => {
+    setShowAddSourcesModal(false);
+    if (typeof window !== "undefined") sessionStorage.setItem(DISMISSED_KEY, "1");
+  };
 
   // Arriving from Library's "Ask AI" button: start a fresh chat with the
   // filename pre-filled so the backend's existing filename-in-query
@@ -119,6 +146,25 @@ function ChatPageInner() {
   const handleSelectHistory = async (id: string | number) => {
     setIsSidebarOpen(false);
     await loadSession(Number(id));
+  };
+
+  const handleDeleteHistory = async (id: string | number) => {
+    const sessionId = Number(id);
+    const previous = sessions;
+    // Optimistic removal — the backend route already existed
+    // (DELETE /api/sessions/{id}), it just wasn't wired to any UI yet.
+    setSessions((prev) => prev.filter((s) => s.id !== sessionId));
+    try {
+      await deleteSession(sessionId);
+    } catch {
+      setSessions(previous); // roll back if the delete actually failed
+      return;
+    }
+    // If the deleted conversation was the one currently open, don't leave
+    // the chat pointed at a session that no longer exists.
+    if (activeSessionId === sessionId) {
+      handleNewChat();
+    }
   };
 
   // Session titles come from the sessions list, which may still be
@@ -179,6 +225,7 @@ function ChatPageInner() {
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
+    if (showAddSourcesModal) dismissAddSourcesModal();
 
     const newJobs: UploadJob[] = Array.from(files).map((file) => ({
       id: Math.random().toString(36).slice(2, 9),
@@ -239,6 +286,7 @@ function ChatPageInner() {
         historyItems={historyItems}
         activeHistoryId={activeSessionId}
         onSelectHistory={handleSelectHistory}
+        onDeleteHistory={handleDeleteHistory}
         onNewChat={handleNewChat}
         isOpen={isSidebarOpen}
         onClose={() => setIsSidebarOpen(false)}
@@ -356,6 +404,38 @@ function ChatPageInner() {
       </main>
 
       <input type="file" multiple accept=".pdf" className="hidden" ref={fileInputRef} onChange={handleFileUpload} />
+
+      {showAddSourcesModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="w-full max-w-sm bg-white rounded-3xl shadow-2xl p-7 text-center animate-in zoom-in-95 duration-200 border border-gray-100">
+            <div
+              className="w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-5 text-white"
+              style={{ background: ACCENT_GRADIENT }}
+            >
+              <IconPlus width={24} height={24} />
+            </div>
+            <h2 className="text-[18px] font-bold text-gray-900 mb-2">Add your first source</h2>
+            <p className="text-[13.5px] text-gray-500 leading-relaxed mb-6">
+              ScholarAI answers from documents you upload. Add a PDF to get started, or skip and just chat freely.
+            </p>
+            <div className="flex flex-col gap-2.5">
+              <button
+                onClick={() => router.push("/sources")}
+                className="w-full py-3 rounded-xl text-white text-[13.5px] font-bold transition-transform hover:scale-[1.02] active:scale-95"
+                style={{ background: ACCENT_GRADIENT }}
+              >
+                Add Sources
+              </button>
+              <button
+                onClick={dismissAddSourcesModal}
+                className="w-full py-2.5 text-[12.5px] font-semibold text-gray-500 hover:text-gray-700 transition-colors"
+              >
+                Skip for now
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

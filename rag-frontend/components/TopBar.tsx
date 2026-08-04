@@ -17,7 +17,7 @@ interface TopBarProps {
 
 const TABS: { id: Tab; label: string; href: string }[] = [
   { id: "sources", label: "Sources", href: "/sources" },
-  { id: "notebook", label: "Notebook", href: "/notebook" },
+  // { id: "notebook", label: "Notebook", href: "/notebook" },
   { id: "history", label: "Current Chat", href: "/chat" },
 ];
 
