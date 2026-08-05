@@ -4,6 +4,7 @@
 import { useEffect, useMemo, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Sidebar from "@/components/Sidebar";
+import UploadIndicatorStack from "@/components/UploadIndicator"; // Imported the indicator
 import { IconSearch, IconFile, IconPlus, IconUploadCloud, IconTrash } from "@/components/icons";
 import { ACCENT_GRADIENT } from "@/lib/theme";
 import { listSources, uploadFile, deleteSource, SourceRow } from "@/lib/api";
@@ -15,6 +16,15 @@ const FILTERS: { id: "all" | "pdf" | "link" | "text"; label: string }[] = [
   { id: "text", label: "Text" },
 ];
 
+// Interface matching the expected props for the UploadIndicator
+export interface UploadJob {
+  id: string;
+  filename: string;
+  progress: number;
+  status: "uploading" | "processing" | "done" | "error";
+  error?: string;
+}
+
 export default function LibraryPage() {
   const router = useRouter();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -24,6 +34,9 @@ export default function LibraryPage() {
   const [filter, setFilter] = useState<"all" | "pdf" | "link" | "text">("all");
   const [query, setQuery] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // New state to track active upload jobs
+  const [uploadJobs, setUploadJobs] = useState<UploadJob[]>([]);
 
   useEffect(() => {
     document.title = "Library · ScholarAI";
@@ -35,10 +48,6 @@ export default function LibraryPage() {
       const rows = await listSources();
       setSources(rows);
     } catch (e) {
-      // This is the fix — previously an unhandled rejection here crashed
-      // the whole page with Next.js's error overlay instead of showing
-      // something recoverable. A failed fetch is an expected possibility
-      // (backend down, CORS, etc.), not a bug in itself.
       setLoadError(e instanceof Error ? e.message : "Failed to load your library.");
     } finally {
       setLoading(false);
@@ -56,13 +65,62 @@ export default function LibraryPage() {
 
   const handleAddFiles = async (files: FileList | null) => {
     if (!files) return;
+
+    // Create initial job states for the UI
+    const newJobs: UploadJob[] = Array.from(files).map((f) => ({
+      id: Math.random().toString(36).substring(7),
+      filename: f.name,
+      progress: 0,
+      status: "uploading",
+    }));
+
+    setUploadJobs((prev) => [...prev, ...newJobs]);
+
+    // Simulate progress visually while waiting for the actual upload promise to resolve
+    const intervals = newJobs.map((job) => {
+      return setInterval(() => {
+        setUploadJobs((prev) =>
+          prev.map((p) => {
+            if (p.id === job.id && p.status === "uploading" && p.progress < 90) {
+              // Increment progress randomly between 5% and 15%
+              return { ...p, progress: Math.min(p.progress + Math.floor(Math.random() * 10) + 5, 90) };
+            }
+            return p;
+          })
+        );
+      }, 400);
+    });
+
     try {
-      await Promise.all(Array.from(files).map((f) => uploadFile(f)));
+      await Promise.all(
+        Array.from(files).map(async (f, index) => {
+          const job = newJobs[index];
+          try {
+            await uploadFile(f);
+            clearInterval(intervals[index]);
+            // On success, snap to 100% and mark as done
+            setUploadJobs((prev) =>
+              prev.map((p) => (p.id === job.id ? { ...p, progress: 100, status: "done" } : p))
+            );
+          } catch (e) {
+            clearInterval(intervals[index]);
+            // On error, mark status as error and pass message
+            setUploadJobs((prev) =>
+              prev.map((p) =>
+                p.id === job.id ? { ...p, status: "error", error: e instanceof Error ? e.message : "Failed" } : p
+              )
+            );
+          }
+        })
+      );
       await refresh();
-    } catch (e) {
-      setLoadError(e instanceof Error ? e.message : "Upload failed.");
     } finally {
       if (fileInputRef.current) fileInputRef.current.value = "";
+      
+      // Clear out completed/errored jobs from the UI after 3 seconds
+      setTimeout(() => {
+        setUploadJobs((prev) => prev.filter((p) => !newJobs.find((n) => n.id === p.id)));
+      }, 3000);
     }
   };
 
@@ -194,10 +252,17 @@ export default function LibraryPage() {
           )}
         </div>
 
+        {/* Upload Indicator Container - Floats in the bottom right corner */}
+        <div className="fixed bottom-28 right-7 z-50 flex flex-col gap-2 pointer-events-none">
+          <div className="pointer-events-auto">
+            <UploadIndicatorStack jobs={uploadJobs} />
+          </div>
+        </div>
+
         <button
           onClick={() => fileInputRef.current?.click()}
           aria-label="Upload material"
-          className="fixed bottom-7 right-7 w-14 h-14 rounded-full flex items-center justify-center text-white shadow-[0_10px_28px_rgba(124,92,252,0.35)] hover:scale-105 active:scale-95 transition-transform"
+          className="fixed bottom-7 right-7 z-40 w-14 h-14 rounded-full flex items-center justify-center text-white shadow-[0_10px_28px_rgba(124,92,252,0.35)] hover:scale-105 active:scale-95 transition-transform"
           style={{ background: ACCENT_GRADIENT }}
         >
           <IconUploadCloud width={22} height={22} />

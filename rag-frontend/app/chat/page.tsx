@@ -7,6 +7,7 @@ import Sidebar, { HistoryItem } from "@/components/Sidebar";
 import TopBar from "@/components/TopBar";
 import { IconDiamond, IconPlus, IconMic, IconSend } from "@/components/icons";
 import UploadIndicatorStack, { UploadJob } from "@/components/UploadIndicator";
+import MarkdownLite from "@/components/MarkdownLite";
 import { ACCENT_GRADIENT } from "@/lib/theme";
 import {
   listSessions,
@@ -337,7 +338,46 @@ function ChatPageInner() {
                       </div>
                       <div className="px-5 py-5 rounded-[20px] rounded-tl-sm bg-gray-50 border border-gray-200/80 shadow-[0_4px_20px_rgba(0,0,0,0.25)] min-w-0 flex-1">
                         {msg.content ? (
-                          <p className="text-[14.5px] leading-relaxed text-gray-900 m-0 whitespace-pre-wrap break-words">{msg.content}</p>
+                          (() => {
+                            // Two distinct signals from the backend:
+                            // - FALLBACK_MARKERS: nothing relevant found at
+                            //   all -> full general-knowledge answer.
+                            //   Amber warning, this is the concerning case.
+                            // - SUPPLEMENT_MARKER: your material WAS used
+                            //   as the foundation, the model just added
+                            //   more detail than the material alone
+                            //   covered (e.g. 200 words -> 500 requested).
+                            //   Neutral badge, not a warning — the source
+                            //   genuinely was the starting point.
+                            const FALLBACK_MARKERS = ["(outside the material)", "(material needed )"];
+                            const SUPPLEMENT_MARKER = "(expanded beyond your source material)";
+                            const trimmed = msg.content.trim();
+                            const fallbackMarker = FALLBACK_MARKERS.find((m) => trimmed.endsWith(m));
+                            const wasSupplemented = !fallbackMarker && trimmed.endsWith(SUPPLEMENT_MARKER);
+                            const marker = fallbackMarker || (wasSupplemented ? SUPPLEMENT_MARKER : null);
+                            const cleanText = marker ? trimmed.slice(0, -marker.length).trim() : msg.content;
+                            return (
+                              <>
+                                {fallbackMarker && (
+                                  <div className="flex items-center gap-2 mb-3 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200">
+                                    <span className="text-[15px]">⚠️</span>
+                                    <span className="text-[12px] font-semibold text-amber-800">
+                                      Not found in your sources — answered from general knowledge
+                                    </span>
+                                  </div>
+                                )}
+                                {wasSupplemented && (
+                                  <div className="flex items-center gap-2 mb-3 px-3 py-2 rounded-lg bg-sky-50 border border-sky-200">
+                                    <span className="text-[15px]">ℹ️</span>
+                                    <span className="text-[12px] font-semibold text-sky-800">
+                                      Based on your source, expanded with extra detail
+                                    </span>
+                                  </div>
+                                )}
+                                <MarkdownLite text={cleanText} />
+                              </>
+                            );
+                          })()
                         ) : isTyping && idx === messages.length - 1 ? (
                           <div className="flex items-center gap-1.5 h-6">
                             <span className="w-2 h-2 rounded-full animate-bounce bg-violet-500 [animation-delay:0ms]" />

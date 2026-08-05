@@ -1,3 +1,4 @@
+# FILE: main.py
 import os
 import re
 import base64
@@ -58,14 +59,33 @@ vision_llm = ChatMistralAI(model="pixtral-12b-2409")
 
 SENTINEL = "Could not find the answer in the provided material"
 
+# Emitted by the model (and stripped before the user ever sees it) when it
+# used the context as its foundation but genuinely added general knowledge
+# beyond what the context alone contained — e.g. context has 200 words on
+# a topic, the user asked for 500 words of detail. This is a DIFFERENT
+# signal from SENTINEL: SENTINEL means "nothing relevant in the context at
+# all"; SUPPLEMENT_TAG means "the context was relevant and used first, but
+# didn't fully cover the requested depth/length."
+SUPPLEMENT_TAG = "[[SUPPLEMENTED]]"
+
 prompt = ChatPromptTemplate.from_messages([
-    ("system", "You are an AI assistant. USE ONLY the provided context to answer the question. "
+    ("system", "You are an AI assistant. Prioritize and ground your answer in the provided context — "
+                "treat it as your primary and preferred source of truth, and always use it first. "
+                "If the context only partially covers what's being asked — for example, the user "
+                "requests more depth, length, or detail than the context alone provides — use the "
+                "context as your foundation first, then supplement with your own accurate general "
+                "knowledge to fully complete the answer. Lead with what the context gives you and "
+                "continue naturally; do not fabricate content and present it as if it were from the "
+                f"source. When you supplement beyond the context this way, end your entire response "
+                f"on its own new line with exactly this tag: {SUPPLEMENT_TAG} — omit that tag "
+                "entirely if your answer relied only on the context. "
                 "If the user asks for patterns like 'most repeated questions', analyze the context "
                 "carefully to find duplicates or near-duplicate questions across the different "
                 "papers, and list them with how many papers/years they appeared in. If the user asks "
                 "to extract questions from a specific chapter or section, pull out every matching "
                 "question you can find in the context, in order. "
-                f"If you couldn't find the answer say '{SENTINEL}'."),
+                f"If the context has nothing relevant to the question at all, say exactly "
+                f"'{SENTINEL}' and nothing else."),
     ("human", "Context: {context}\n\nQuestion: {question}")
 ])
 
@@ -109,16 +129,25 @@ def register_source(basename: str) -> str:
 
 
 def get_filter_for_query(query: str):
-    """Looks for an explicit filename or a pdf1/paper2-style label in the
-    query and returns a Pinecone metadata filter scoped to that document,
-    or None if no specific document was referenced."""
+    """Looks for a reference to a specific uploaded document in the query
+    and returns a Pinecone metadata filter scoped to it, or None if no
+    specific document was referenced.
+
+    Checks the query against filenames we actually know about (already
+    uploaded, already in label_to_source) via substring match — which
+    works regardless of spaces, parentheses, or anything else a real
+    filename might contain (a plain whitespace-splitting regex breaks on
+    filenames with spaces, e.g. "ml-dl (3).pdf").
+    """
     q_lower = query.lower()
 
-    # 1. Explicit filename, e.g. "syllabus.pdf" or "paper_2023.jpg"
-    m = re.search(r'(\S+\.(?:pdf|png|jpg|jpeg))', q_lower)
-    if m:
-        filename = m.group(1)
-        return {"source_lower": {"$eq": filename}}
+    # 1. Does the query mention any filename we actually know about?
+    #    Longest names first so "notes.pdf" can't shadow a match against
+    #    "my notes.pdf" if both happen to be uploaded.
+    known_filenames = sorted(set(label_to_source.values()), key=len, reverse=True)
+    for filename in known_filenames:
+        if filename.lower() in q_lower:
+            return {"source_lower": {"$eq": filename.lower()}}
 
     # 2. Short label, e.g. "pdf1" or "paper 2"
     m2 = re.search(r'\b(pdf|paper)\s?(\d+)\b', q_lower)
@@ -156,8 +185,10 @@ def answer_query(query: str) -> str:
     """Runs the RAG pipeline for a query. Handles:
     - scoping to one document if the user names it (filename or pdf1/paper2 label)
     - widening retrieval for 'most repeated questions' style asks
+    - supplementing with general knowledge when the context only partially
+      covers what's asked (e.g. context has 200 words, user wants 500)
     - falling back to a clearly-labelled general-knowledge answer when
-      nothing relevant is in the uploaded material
+      NOTHING relevant is in the uploaded material at all
     """
     wide = is_repeated_question_query(query)
     filter_dict = get_filter_for_query(query)
@@ -178,14 +209,19 @@ def answer_query(query: str) -> str:
     response = llm.invoke(new_prompt)
     answer = response.content
 
-    # If the model says it's not in the material, fall back to a
-    # general-knowledge answer instead of just returning the sentinel.
+    # Nothing relevant at all -> full general-knowledge fallback.
     if SENTINEL in answer or not context.strip():
         fb_prompt = fallback_prompt.invoke({"question": query})
         fb_response = llm.invoke(fb_prompt)
         return f"{fb_response.content}\n\n(material needed )"
 
-    return f"{note}{answer}"
+    # Context was relevant and used as the foundation, but the model
+    # supplemented beyond it to fully satisfy the request.
+    was_supplemented = SUPPLEMENT_TAG in answer
+    answer = answer.replace(SUPPLEMENT_TAG, "").strip()
+    suffix = "\n\n(expanded beyond your source material)" if was_supplemented else ""
+
+    return f"{note}{answer}{suffix}"
 
 
 print("RAG System Created")

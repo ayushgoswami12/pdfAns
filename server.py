@@ -17,6 +17,7 @@ try:
         vectorStore,
         index,
         SENTINEL,
+        SUPPLEMENT_TAG,
         is_repeated_question_query,
         get_filter_for_query,
         get_context_docs,
@@ -103,12 +104,27 @@ async def response_generator(query: str, session_id: Optional[int]):
                 full_answer += note
                 yield note
 
+            # Context was relevant and used as the foundation, but the
+            # model may have supplemented beyond it (e.g. context only had
+            # 200 words on the topic, the user asked for 500). Strip the
+            # tag before it ever reaches the stream, and append a neutral
+            # marker distinct from the full-fallback one — the frontend
+            # renders these two very differently (this one isn't a warning,
+            # material genuinely was used).
+            was_supplemented = SUPPLEMENT_TAG in answer_text
+            answer_text = answer_text.replace(SUPPLEMENT_TAG, "").strip()
+
             chunk_size = 20
             for i in range(0, len(answer_text), chunk_size):
                 piece = answer_text[i:i + chunk_size]
                 full_answer += piece
                 yield piece
                 await asyncio.sleep(0.01)
+
+            if was_supplemented:
+                suffix = "\n\n(expanded beyond your source material)"
+                full_answer += suffix
+                yield suffix
 
             print("Streaming complete")
     except Exception as e:
