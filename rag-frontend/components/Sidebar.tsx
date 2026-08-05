@@ -160,7 +160,7 @@ export default function Sidebar({
             AS
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-[12.5px] font-semibold text-gray-900 truncate m-0">Alex Scholar</p>
+            <p className="text-[12.5px] font-semibold text-gray-900 truncate m-0">LDRP STUDENT</p>
             <p className="text-[11px] text-gray-500 m-0">Free Plan</p>
           </div>
         </div>
