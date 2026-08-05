@@ -1,10 +1,9 @@
-// FILE: app/library/page.tsx
 "use client";
 
 import { useEffect, useMemo, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Sidebar from "@/components/Sidebar";
-import UploadIndicatorStack from "@/components/UploadIndicator"; // Imported the indicator
+import UploadIndicatorStack, { UploadJob } from "@/components/UploadIndicator";
 import { IconSearch, IconFile, IconPlus, IconUploadCloud, IconTrash } from "@/components/icons";
 import { ACCENT_GRADIENT } from "@/lib/theme";
 import { listSources, uploadFile, deleteSource, SourceRow } from "@/lib/api";
@@ -15,15 +14,6 @@ const FILTERS: { id: "all" | "pdf" | "link" | "text"; label: string }[] = [
   { id: "link", label: "Links" },
   { id: "text", label: "Text" },
 ];
-
-// Interface matching the expected props for the UploadIndicator
-export interface UploadJob {
-  id: string;
-  filename: string;
-  progress: number;
-  status: "uploading" | "processing" | "done" | "error";
-  error?: string;
-}
 
 export default function LibraryPage() {
   const router = useRouter();
@@ -98,9 +88,9 @@ export default function LibraryPage() {
           try {
             await uploadFile(f);
             clearInterval(intervals[index]);
-            // On success, snap to 100% and mark as done
+            // On success, snap to 100% and mark as success
             setUploadJobs((prev) =>
-              prev.map((p) => (p.id === job.id ? { ...p, progress: 100, status: "done" } : p))
+              prev.map((p) => (p.id === job.id ? { ...p, progress: 100, status: "success" } : p))
             );
           } catch (e) {
             clearInterval(intervals[index]);
