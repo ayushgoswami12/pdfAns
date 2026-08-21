@@ -1,18 +1,20 @@
-// FILE: app/notebook/page.tsx
-
 "use client";
 
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import Sidebar from "@/components/Sidebar";
 import TopBar from "@/components/TopBar";
+import AuthGuard from "@/components/AuthGuard";
+import { logout } from "@/lib/auth";
 import { IconNotepad } from "@/components/icons";
 import UploadIndicatorStack, { UploadJob } from "@/components/UploadIndicator";
 
 const DEMO_FILENAME = "lecture-notes-week4.pdf";
 
 export default function NotebookPage() {
+  const router = useRouter();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [demoJob, setDemoJob] = useState<UploadJob>({
     id: "demo",
@@ -25,9 +27,8 @@ export default function NotebookPage() {
     document.title = " Notebook · ScholarAI ";
   }, []);
 
-  // Self-running demo loop so the animation is visible on load without
-  // needing a real file — clearly labeled below as a preview, not a
-  // working upload (there's no backend route behind this page yet).
+
+
   useEffect(() => {
     let cancelled = false;
 
@@ -51,39 +52,46 @@ export default function NotebookPage() {
   }, []);
 
   return (
-    <div className="flex h-[100dvh] w-full overflow-hidden bg-white text-gray-900 antialiased">
-      <Sidebar active="notebook" isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
+    <AuthGuard>
+      {(user) => (
+        <div className="flex h-[100dvh] w-full overflow-hidden bg-white text-gray-900 antialiased">
+          <Sidebar
+            active="notebook"
+            userEmail={user.email}
+            onLogout={() => { logout(); router.push("/login"); }}
+            isOpen={isSidebarOpen}
+            onClose={() => setIsSidebarOpen(false)}
+          />
 
-      <main className="flex-1 flex flex-col min-w-0">
-        <TopBar mode="global" activeTab="notebook" onOpenSidebar={() => setIsSidebarOpen(true)} />
+          <main className="flex-1 flex flex-col min-w-0">
+            <TopBar mode="global" activeTab="notebook" onOpenSidebar={() => setIsSidebarOpen(true)} />
 
-        <div className="flex-1 flex flex-col items-center justify-center px-6 text-center">
-          <div className="w-16 h-16 rounded-2xl bg-gray-50 border border-gray-200 flex items-center justify-center mb-5">
-            <IconNotepad width={26} height={26} className="text-gray-500" />
-          </div>
-          <h1 className="text-[20px] font-bold text-gray-900 mb-2">Notebook isn't built yet</h1>
-          <p className="text-[14px] text-gray-500 max-w-sm leading-relaxed mb-6">
-            This route exists so the tab doesn't 404, but there's no backend
-            behind it — no table to save notes to, no endpoint to fetch them
-            from. Say the word and it's a straightforward add next to the
-            sessions table already in <code className="text-gray-500">database.py</code>.
-          </p>
+            <div className="flex-1 flex flex-col items-center justify-center px-6 text-center">
+              <div className="w-16 h-16 rounded-2xl bg-gray-50 border border-gray-200 flex items-center justify-center mb-5">
+                <IconNotepad width={26} height={26} className="text-gray-500" />
+              </div>
+              <h1 className="text-[20px] font-bold text-gray-900 mb-2">Notebook isn't built yet</h1>
+              <p className="text-[14px] text-gray-500 max-w-sm leading-relaxed mb-6">
+                This route exists so the tab doesn't 404, but there's no backend
+                behind it — no table to save notes to, no endpoint to fetch them
+                from. Say the word and it's a straightforward add next to the
+                sessions table already in <code className="text-gray-500">database.py</code>.
+              </p>
 
-          <div className="w-full max-w-md mb-2">
-            <p className="text-[10.5px] font-bold tracking-[0.12em] uppercase text-violet-400 mb-3">
-              Preview — animation only, not a working upload
-            </p>
-            <UploadIndicatorStack jobs={[demoJob]} />
-          </div>
+              <div className="w-full max-w-md mb-2">
+                <p className="text-[10.5px] font-bold tracking-[0.12em] uppercase text-violet-400 mb-3">
+                  Preview — animation only, not a working upload
+                </p>
+                <UploadIndicatorStack jobs={[demoJob]} />
+              </div>
 
-          <Link href="/chat" className="text-[13px] font-semibold text-violet-500 hover:text-violet-600 transition-colors mt-6">
-            Back to Chat →
-          </Link>
+              <Link href="/chat" className="text-[13px] font-semibold text-violet-500 hover:text-violet-600 transition-colors mt-6">
+                Back to Chat →
+              </Link>
+            </div>
+          </main>
         </div>
-      </main>
-    </div>
+      )}
+    </AuthGuard>
   );
 }
-
-
-

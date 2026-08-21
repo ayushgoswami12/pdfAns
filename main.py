@@ -1,315 +1,871 @@
 # FILE: main.py
+
 import os
 import re
+import json
 import base64
+import hashlib
+
 from dotenv import load_dotenv
-from langchain_mistralai import MistralAIEmbeddings, ChatMistralAI
+
+from langchain_mistralai import (
+    MistralAIEmbeddings,
+    ChatMistralAI,
+)
+
 from langchain_core.prompts import ChatPromptTemplate
+
 from langchain_core.messages import HumanMessage
+
 from langchain_core.documents import Document
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_pinecone import PineconeVectorStore as PineconeStore
+
+from langchain_text_splitters import (
+    RecursiveCharacterTextSplitter,
+)
+
+from langchain_pinecone import (
+    PineconeVectorStore as PineconeStore,
+)
+
 from pinecone import Pinecone
 
-# NOTE: PDF ingestion needs `pypdf` installed (pip install pypdf) for
-# langchain_community's PyPDFLoader to work.
-from langchain_community.document_loaders import PyPDFLoader
+from langchain_community.document_loaders import (
+    PyPDFLoader,
+)
+
 
 load_dotenv()
 
+
+# ============================================================
+# VECTOR STORE
+# ============================================================
+
 embedding_model = MistralAIEmbeddings()
 
-pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
-index = pc.Index(os.getenv("PINECONE_INDEX_NAME"))
+pc = Pinecone(
+    api_key=os.getenv("PINECONE_API_KEY")
+)
+
+index = pc.Index(
+    os.getenv("PINECONE_INDEX_NAME")
+)
 
 vectorStore = PineconeStore(
     index=index,
     embedding=embedding_model,
-    text_key="text"
+    text_key="text",
 )
 
-# INCREASED K: To find "repeated questions" across multiple papers,
-# the LLM needs to see more chunks at once.
+
 retriver = vectorStore.as_retriever(
     search_type="mmr",
     search_kwargs={
-        "k": 8,           # Increased from 4 to fetch more context across papers
-        "fetch_k": 20,    # Increased from 10
+        "k": 8,
+        "fetch_k": 20,
         "lambda_mult": 0.5,
-    }
+    },
 )
 
-# A wider retriever specifically for "most repeated questions" style
-# queries, where the LLM needs to see as many previous-year papers as
-# possible rather than just the most semantically similar chunks.
+
 repeated_q_retriver = vectorStore.as_retriever(
     search_type="mmr",
     search_kwargs={
         "k": 20,
         "fetch_k": 40,
-        "lambda_mult": 0.3,   # lower lambda -> favor diversity across papers
-    }
+        "lambda_mult": 0.3,
+    },
 )
 
-# Standard LLM for answering questions
-llm = ChatMistralAI(model="mistral-small-2506")
 
-# Vision LLM specifically for reading exam papers
-vision_llm = ChatMistralAI(model="pixtral-12b-2409")
+# ============================================================
+# MODELS
+# ============================================================
 
-SENTINEL = "Could not find the answer in the provided material"
+llm = ChatMistralAI(
+    model="mistral-small-2506"
+)
 
-# Emitted by the model (and stripped before the user ever sees it) when it
-# used the context as its foundation but genuinely added general knowledge
-# beyond what the context alone contained — e.g. context has 200 words on
-# a topic, the user asked for 500 words of detail. This is a DIFFERENT
-# signal from SENTINEL: SENTINEL means "nothing relevant in the context at
-# all"; SUPPLEMENT_TAG means "the context was relevant and used first, but
-# didn't fully cover the requested depth/length."
+vision_llm = ChatMistralAI(
+    model="pixtral-12b-2409"
+)
+
+
+SENTINEL = (
+    "Could not find the answer in the provided material"
+)
+
 SUPPLEMENT_TAG = "[[SUPPLEMENTED]]"
 
-prompt = ChatPromptTemplate.from_messages([
-    ("system", "You are an AI assistant. Prioritize and ground your answer in the provided context — "
-                "treat it as your primary and preferred source of truth, and always use it first. "
-                "If the context only partially covers what's being asked — for example, the user "
-                "requests more depth, length, or detail than the context alone provides — use the "
-                "context as your foundation first, then supplement with your own accurate general "
-                "knowledge to fully complete the answer. Lead with what the context gives you and "
-                "continue naturally; do not fabricate content and present it as if it were from the "
-                f"source. When you supplement beyond the context this way, end your entire response "
-                f"on its own new line with exactly this tag: {SUPPLEMENT_TAG} — omit that tag "
-                "entirely if your answer relied only on the context. "
-                "If the user asks for patterns like 'most repeated questions', analyze the context "
-                "carefully to find duplicates or near-duplicate questions across the different "
-                "papers, and list them with how many papers/years they appeared in. If the user asks "
-                "to extract questions from a specific chapter or section, pull out every matching "
-                "question you can find in the context, in order. "
-                f"If the context has nothing relevant to the question at all, say exactly "
-                f"'{SENTINEL}' and nothing else."),
-    ("human", "Context: {context}\n\nQuestion: {question}")
-])
 
-# Fallback prompt used when the context genuinely has nothing relevant.
-# This lets the assistant still answer from its own general knowledge,
-# clearly labelled so the student knows it isn't sourced from their papers.
-fallback_prompt = ChatPromptTemplate.from_messages([
-    ("system", "You are a helpful study assistant. The user's question could not be answered "
-                "from their uploaded exam papers/material. Answer it as best you can using your "
-                "own general knowledge. Be concise and accurate."),
-    ("human", "Question: {question}")
-])
+# ============================================================
+# NORMAL CHAT PROMPTS
+# ============================================================
 
-# Keywords that signal the user wants a "repeated question" style
-# analysis across papers, so we can widen retrieval automatically.
+prompt = ChatPromptTemplate.from_messages(
+    [
+        (
+            "system",
+            """
+You are ScholarAI.
+
+Answer the student's question using the supplied document
+context as the primary source of truth.
+
+Rules:
+1. Use the supplied context first.
+2. If the context only partially answers the question, you may
+   supplement with accurate general knowledge.
+3. If there is no relevant document context, say exactly:
+   "Could not find the answer in the provided material"
+4. Do not claim that something is in the student's material
+   unless it is supported by the supplied context.
+5. Be clear and useful for a student.
+""",
+        ),
+        (
+            "human",
+            "Context:\n{context}\n\nQuestion:\n{question}",
+        ),
+    ]
+)
+
+
+fallback_prompt = ChatPromptTemplate.from_messages(
+    [
+        (
+            "system",
+            """
+You are ScholarAI.
+
+The student's uploaded material did not contain enough
+information to answer the question.
+
+Answer using general knowledge and do not pretend that the
+answer came from the student's uploaded material.
+""",
+        ),
+        (
+            "human",
+            "Question:\n{question}",
+        ),
+    ]
+)
+
+
+# ============================================================
+# DOCUMENT REFERENCES
+# ============================================================
+
 REPEATED_Q_KEYWORDS = [
-    "repeated question", "repeated questions", "most repeated",
-    "most asked", "frequently asked", "common question", "common questions",
-    "important question", "important questions", "which question",
-    "recurring question", "pattern of question"
+    "repeated question",
+    "repeated questions",
+    "most repeated",
+    "most asked",
+    "frequently asked",
+    "common question",
+    "common questions",
+    "important question",
+    "important questions",
+    "which question",
+    "recurring question",
+    "pattern of question",
 ]
 
-# --- Per-document referencing -------------------------------------------
-# Lets a student say things like:
-#   "in pdf1 extract all questions from chapter 5"
-#   "extract all questions from chapter 5 in syllabus.pdf"
-# and have retrieval scoped to just that one uploaded document.
-label_to_source = {}   # e.g. {"pdf1": "2022_paper.pdf", "paper1": "2022_paper.pdf"}
+
+label_to_source = {}
 doc_counter = 0
 
 
 def register_source(basename: str) -> str:
-    """Assigns a short label (pdf1, pdf2, ...) to a newly ingested file so
-    it can be referenced later, and returns that label."""
     global doc_counter
+
     doc_counter += 1
+
     label = f"pdf{doc_counter}"
+
     label_to_source[label] = basename
     label_to_source[f"paper{doc_counter}"] = basename
+
     return label
 
 
 def get_filter_for_query(query: str):
-    """Looks for a reference to a specific uploaded document in the query
-    and returns a Pinecone metadata filter scoped to it, or None if no
-    specific document was referenced.
-
-    Checks the query against filenames we actually know about (already
-    uploaded, already in label_to_source) via substring match — which
-    works regardless of spaces, parentheses, or anything else a real
-    filename might contain (a plain whitespace-splitting regex breaks on
-    filenames with spaces, e.g. "ml-dl (3).pdf").
-    """
     q_lower = query.lower()
 
-    # 1. Does the query mention any filename we actually know about?
-    #    Longest names first so "notes.pdf" can't shadow a match against
-    #    "my notes.pdf" if both happen to be uploaded.
-    known_filenames = sorted(set(label_to_source.values()), key=len, reverse=True)
-    for filename in known_filenames:
-        if filename.lower() in q_lower:
-            return {"source_lower": {"$eq": filename.lower()}}
+    known_filenames = sorted(
+        set(label_to_source.values()),
+        key=len,
+        reverse=True,
+    )
 
-    # 2. Short label, e.g. "pdf1" or "paper 2"
-    m2 = re.search(r'\b(pdf|paper)\s?(\d+)\b', q_lower)
-    if m2:
-        label = f"{m2.group(1)}{m2.group(2)}"
+    for filename in known_filenames:
+
+        if filename.lower() in q_lower:
+            return {
+                "source_lower": {
+                    "$eq": filename.lower()
+                }
+            }
+
+    match = re.search(
+        r"\b(pdf|paper)\s?(\d+)\b",
+        q_lower,
+    )
+
+    if match:
+
+        label = (
+            f"{match.group(1)}"
+            f"{match.group(2)}"
+        )
+
         if label in label_to_source:
-            return {"source_lower": {"$eq": label_to_source[label].lower()}}
+
+            return {
+                "source_lower": {
+                    "$eq": label_to_source[label].lower()
+                }
+            }
 
     return None
 
 
-def is_repeated_question_query(query: str) -> bool:
+def is_repeated_question_query(
+    query: str,
+) -> bool:
+
     q = query.lower()
-    return any(kw in q for kw in REPEATED_Q_KEYWORDS)
+
+    return any(
+        keyword in q
+        for keyword in REPEATED_Q_KEYWORDS
+    )
 
 
 def encode_image(image_path):
-    with open(image_path, "rb") as image_file:
-        return base64.b64encode(image_file.read()).decode('utf-8')
+    with open(
+        image_path,
+        "rb",
+    ) as image_file:
+
+        return base64.b64encode(
+            image_file.read()
+        ).decode("utf-8")
 
 
-def get_context_docs(query: str, wide: bool = False, filter_dict=None):
-    if filter_dict:
-        k = 15
-        try:
-            return vectorStore.similarity_search(query, k=k, filter=filter_dict)
-        except Exception as e:
-            print(f"(Filtered search failed, falling back to full search: {e})")
-            return []
-    active_retriver = repeated_q_retriver if wide else retriver
-    return active_retriver.invoke(query)
+# ============================================================
+# USER-SCOPED VECTOR RETRIEVAL
+# ============================================================
 
-
-def answer_query(query: str) -> str:
-    """Runs the RAG pipeline for a query. Handles:
-    - scoping to one document if the user names it (filename or pdf1/paper2 label)
-    - widening retrieval for 'most repeated questions' style asks
-    - supplementing with general knowledge when the context only partially
-      covers what's asked (e.g. context has 200 words, user wants 500)
-    - falling back to a clearly-labelled general-knowledge answer when
-      NOTHING relevant is in the uploaded material at all
+def get_user_context_docs(
+    query: str,
+    user_id: int,
+    wide: bool = False,
+):
     """
-    wide = is_repeated_question_query(query)
-    filter_dict = get_filter_for_query(query)
+    Retrieve ONLY the authenticated user's vectors.
 
-    note = ""
-    docs = []
-    if filter_dict:
-        docs = get_context_docs(query, wide=wide, filter_dict=filter_dict)
-        if not docs:
-            note = "(Couldn't find that specific document — searched across all material instead.)\n\n"
+    Every uploaded PDF chunk receives user_id metadata.
+    """
 
-    if not docs:
-        docs = get_context_docs(query, wide=wide)
+    user_filter = {
+        "user_id": {
+            "$eq": user_id
+        }
+    }
 
-    context = "\n\n".join([doc.page_content for doc in docs])
+    try:
 
-    new_prompt = prompt.invoke({"context": context, "question": query})
-    response = llm.invoke(new_prompt)
+        return vectorStore.similarity_search(
+            query,
+            k=20 if wide else 12,
+            filter=user_filter,
+        )
+
+    except Exception as e:
+
+        print(
+            "User-filtered Pinecone search failed:",
+            e,
+        )
+
+        return []
+
+
+# ============================================================
+# QUIZ PROMPT
+# ============================================================
+
+quiz_prompt = ChatPromptTemplate.from_messages(
+    [
+        (
+            "system",
+            """
+You are ScholarAI's quiz generator.
+
+Create a multiple-choice quiz using ONLY these sources:
+
+1. CURRENT CHAT
+2. CURRENT STUDENT'S UPLOADED PDF MATERIAL
+
+STRICT RULES:
+
+1. Do not use general world knowledge.
+2. Do not use previous chat sessions.
+3. Use only the current session supplied in CURRENT CHAT.
+4. Use only PDF content supplied in CURRENT STUDENT PDF MATERIAL.
+5. Every question must be supported by either the current chat
+   or the supplied PDF material.
+6. The current chat and PDF material belong to the same student.
+7. If the PDF has useful information that was not discussed in
+   the chat, that PDF information may be tested.
+8. If the current chat discusses something not present in the
+   PDF, that current-chat information may be tested.
+9. If both sources discuss the same concept, you may test it.
+10. Cover different concepts.
+11. Avoid questions that are effectively duplicates.
+12. Each question must have exactly 4 options.
+13. Exactly one option must be correct.
+14. correct_index must be 0, 1, 2, or 3.
+15. Give a concise explanation.
+16. Return ONLY valid JSON.
+17. Do not use markdown code fences.
+18. Do not add commentary before or after JSON.
+
+Requested number:
+{num_questions}
+
+Previously asked questions:
+{excluded_questions}
+
+CURRENT CHAT:
+{chat_context}
+
+CURRENT STUDENT PDF MATERIAL:
+{pdf_context}
+""",
+        ),
+        (
+            "human",
+            "Generate the quiz now.",
+        ),
+    ]
+)
+
+
+def _quiz_fingerprint(
+    question: str,
+) -> str:
+
+    normalized = re.sub(
+        r"\s+",
+        " ",
+        question.lower().strip(),
+    )
+
+    return hashlib.sha256(
+        normalized.encode("utf-8")
+    ).hexdigest()
+
+
+def _clean_quiz_json(
+    raw: str,
+) -> list[dict]:
+
+    raw = raw.strip()
+
+    if raw.startswith("```"):
+
+        raw = raw.replace(
+            "```json",
+            "",
+            1,
+        )
+
+        raw = raw.replace(
+            "```",
+            "",
+        )
+
+        raw = raw.strip()
+
+    try:
+
+        parsed = json.loads(raw)
+
+    except json.JSONDecodeError as e:
+
+        raise ValueError(
+            f"Model did not return valid JSON: {e}"
+        )
+
+    if not isinstance(parsed, list):
+
+        raise ValueError(
+            "Quiz result must be a JSON array."
+        )
+
+    result = []
+
+    for item in parsed:
+
+        if not isinstance(item, dict):
+            continue
+
+        required = {
+            "question",
+            "options",
+            "correct_index",
+            "explanation",
+        }
+
+        if not required.issubset(item.keys()):
+            continue
+
+        question = item["question"]
+        options = item["options"]
+        correct_index = item["correct_index"]
+        explanation = item["explanation"]
+
+        if not isinstance(question, str):
+            continue
+
+        if not isinstance(options, list):
+            continue
+
+        if len(options) != 4:
+            continue
+
+        if not all(
+            isinstance(option, str)
+            for option in options
+        ):
+            continue
+
+        if not isinstance(correct_index, int):
+            continue
+
+        if not 0 <= correct_index <= 3:
+            continue
+
+        if not isinstance(explanation, str):
+            continue
+
+        result.append(
+            {
+                "question": question.strip(),
+                "options": options,
+                "correct_index": correct_index,
+                "explanation": explanation.strip(),
+            }
+        )
+
+    return result
+
+
+def generate_quiz(
+    chat_context: str,
+    pdf_context: str,
+    num_questions: int = 5,
+    excluded_questions: list[str] | None = None,
+) -> list[dict]:
+
+    num_questions = max(
+        1,
+        min(
+            int(num_questions),
+            20,
+        ),
+    )
+
+    excluded_questions = (
+        excluded_questions or []
+    )
+
+    excluded_fingerprints = {
+        _quiz_fingerprint(question)
+        for question in excluded_questions
+    }
+
+    generated = []
+
+    attempts = 0
+
+    while (
+        len(generated) < num_questions
+        and attempts < 5
+    ):
+
+        attempts += 1
+
+        remaining = (
+            num_questions - len(generated)
+        )
+
+        previous_questions = (
+            excluded_questions
+            + [
+                item["question"]
+                for item in generated
+            ]
+        )
+
+        previous_questions = previous_questions[-100:]
+
+        excluded_text = (
+            "\n".join(
+                f"- {question}"
+                for question in previous_questions
+            )
+            if previous_questions
+            else "None"
+        )
+
+        filled_prompt = quiz_prompt.invoke(
+            {
+                "num_questions": remaining,
+                "excluded_questions": excluded_text,
+                "chat_context": chat_context,
+                "pdf_context": pdf_context,
+            }
+        )
+
+        response = llm.invoke(
+            filled_prompt
+        )
+
+        candidates = _clean_quiz_json(
+            response.content
+        )
+
+        for candidate in candidates:
+
+            fingerprint = _quiz_fingerprint(
+                candidate["question"]
+            )
+
+            if fingerprint in excluded_fingerprints:
+                continue
+
+            if any(
+                fingerprint
+                == _quiz_fingerprint(
+                    item["question"]
+                )
+                for item in generated
+            ):
+                continue
+
+            generated.append(
+                {
+                    **candidate,
+                    "fingerprint": fingerprint,
+                }
+            )
+
+            excluded_fingerprints.add(
+                fingerprint
+            )
+
+            if len(generated) >= num_questions:
+                break
+
+    return generated[:num_questions]
+
+
+# ============================================================
+# NORMAL CHAT
+# ============================================================
+
+def answer_query(
+    query: str,
+) -> str:
+
+    wide = is_repeated_question_query(
+        query
+    )
+
+    docs = get_user_context_docs(
+        query,
+        user_id=0,
+        wide=wide,
+    )
+
+    context = "\n\n".join(
+        doc.page_content
+        for doc in docs
+    )
+
+    new_prompt = prompt.invoke(
+        {
+            "context": context,
+            "question": query,
+        }
+    )
+
+    response = llm.invoke(
+        new_prompt
+    )
+
     answer = response.content
 
-    # Nothing relevant at all -> full general-knowledge fallback.
-    if SENTINEL in answer or not context.strip():
-        fb_prompt = fallback_prompt.invoke({"question": query})
-        fb_response = llm.invoke(fb_prompt)
-        return f"{fb_response.content}\n\n(material needed )"
+    if (
+        SENTINEL in answer
+        or not context.strip()
+    ):
 
-    # Context was relevant and used as the foundation, but the model
-    # supplemented beyond it to fully satisfy the request.
-    was_supplemented = SUPPLEMENT_TAG in answer
-    answer = answer.replace(SUPPLEMENT_TAG, "").strip()
-    suffix = "\n\n(expanded beyond your source material)" if was_supplemented else ""
+        fb_prompt = fallback_prompt.invoke(
+            {
+                "question": query
+            }
+        )
 
-    return f"{note}{answer}{suffix}"
+        fb_response = llm.invoke(
+            fb_prompt
+        )
+
+        return (
+            f"{fb_response.content}"
+            "\n\n(material needed )"
+        )
+
+    was_supplemented = (
+        SUPPLEMENT_TAG in answer
+    )
+
+    answer = answer.replace(
+        SUPPLEMENT_TAG,
+        "",
+    ).strip()
+
+    suffix = (
+        "\n\n(expanded beyond your source material)"
+        if was_supplemented
+        else ""
+    )
+
+    return (
+        f"{answer}"
+        f"{suffix}"
+    )
 
 
-print("RAG System Created")
-print("Press 0 to exit")
-print("Tip: Enter an image path (e.g., paper_2023.jpg) or a .pdf path to extract and store it!")
-print("Tip: Ask 'give me the most repeated questions' to analyze patterns across all papers!")
-print("Tip: Reference a specific paper with its label (e.g. 'in pdf1, ...') or filename (e.g. 'in syllabus.pdf, ...')")
+# ============================================================
+# CLI
+# ============================================================
+
+print(
+    "RAG System Created"
+)
+
+print(
+    "Press 0 to exit"
+)
+
 
 if __name__ == "__main__":
+
     while True:
-        query = input("You: ")
+
+        query = input(
+            "You: "
+        )
+
         if query == "0":
             break
 
-        # --- PDF ingestion ---------------------------------------------
-        if os.path.isfile(query) and query.lower().endswith('.pdf'):
-            print("Reading PDF...")
-            try:
-                basename = os.path.basename(query)
-                loader = PyPDFLoader(query)
-                pages = loader.load()  # one Document per page, with page metadata
+        if (
+            os.path.isfile(query)
+            and query.lower().endswith(".pdf")
+        ):
 
-                if not pages or not "".join(p.page_content for p in pages).strip():
-                    print("\nSystem: Could not extract any text from this PDF. It may be scanned/image-based — "
-                          "try converting its pages to images and uploading those instead.")
+            print(
+                "Reading PDF..."
+            )
+
+            try:
+
+                basename = os.path.basename(
+                    query
+                )
+
+                loader = PyPDFLoader(
+                    query
+                )
+
+                pages = loader.load()
+
+                if (
+                    not pages
+                    or not "".join(
+                        page.page_content
+                        for page in pages
+                    ).strip()
+                ):
+
+                    print(
+                        "Could not extract text."
+                    )
+
                     continue
 
-                for p in pages:
-                    p.metadata["source"] = basename
-                    p.metadata["source_lower"] = basename.lower()
+                for page in pages:
 
-                splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
-                split_docs = splitter.split_documents(pages)
+                    page.metadata["source"] = (
+                        basename
+                    )
 
-                vectorStore.add_documents(split_docs)
-                label = register_source(basename)
-                print(f"Success! Stored {len(split_docs)} chunks from '{basename}'. "
-                      f"You can refer to it later as '{label}' or by its filename.")
+                    page.metadata[
+                        "source_lower"
+                    ] = basename.lower()
+
+                splitter = RecursiveCharacterTextSplitter(
+                    chunk_size=1000,
+                    chunk_overlap=200,
+                )
+
+                split_docs = (
+                    splitter.split_documents(
+                        pages
+                    )
+                )
+
+                vectorStore.add_documents(
+                    split_docs
+                )
+
+                label = register_source(
+                    basename
+                )
+
+                print(
+                    f"Success! Stored "
+                    f"{len(split_docs)} chunks "
+                    f"from '{basename}'. "
+                    f"Label: {label}"
+                )
+
             except Exception as e:
-                print(f"Error processing PDF: {e}")
+
+                print(
+                    f"Error processing PDF: {e}"
+                )
+
             continue
-        # --------------------------------------------------------------
 
-        # --- Smart Vision Extraction & Vector Ingestion -----------------
-        if os.path.isfile(query) and query.lower().endswith(('.png', '.jpg', '.jpeg')):
-            print("Reading exam paper with Pixtral Vision...")
+        if (
+            os.path.isfile(query)
+            and query.lower().endswith(
+                (
+                    ".png",
+                    ".jpg",
+                    ".jpeg",
+                )
+            )
+        ):
+
+            print(
+                "Reading exam paper..."
+            )
+
             try:
-                basename = os.path.basename(query)
-                base64_image = encode_image(query)
 
-                # Ask Pixtral to transcribe the exam paper cleanly
+                basename = os.path.basename(
+                    query
+                )
+
+                base64_image = encode_image(
+                    query
+                )
+
                 message = HumanMessage(
                     content=[
-                        {"type": "text", "text": "Carefully extract all text, questions, formulas, and options from this exam paper. Keep the question numbers and formatting intact. If this image is not a document or contains no readable text, reply exactly with 'NO_TEXT_FOUND'."},
+                        {
+                            "type": "text",
+                            "text": (
+                                "Carefully extract all text, "
+                                "questions, formulas, and options "
+                                "from this exam paper."
+                            ),
+                        },
                         {
                             "type": "image_url",
-                            "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}
+                            "image_url": {
+                                "url": (
+                                    "data:image/jpeg;base64,"
+                                    f"{base64_image}"
+                                )
+                            },
                         },
                     ]
                 )
 
-                vision_response = vision_llm.invoke([message])
-                extracted_text = vision_response.content
-
-                # Guardrail against unreadable/invalid images
-                if "NO_TEXT_FOUND" in extracted_text or len(extracted_text.strip()) < 15:
-                    print("\nSystem: Could not extract meaningful text or questions from this image. It may be too blurry or not a document.")
-                    continue
-
-                # Wrap the clean text in a Langchain Document object
-                doc = Document(
-                    page_content=extracted_text,
-                    metadata={"source": basename, "source_lower": basename.lower()}
+                vision_response = (
+                    vision_llm.invoke(
+                        [message]
+                    )
                 )
 
-                # Chunk and add to Pinecone
-                splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
-                split_docs = splitter.split_documents([doc])
+                extracted_text = (
+                    vision_response.content
+                )
 
-                vectorStore.add_documents(split_docs)
-                label = register_source(basename)
-                print(f"Success! Extracted and stored {len(split_docs)} chunks from '{basename}'. "
-                      f"You can refer to it later as '{label}' or by its filename.")
+                if len(
+                    extracted_text.strip()
+                ) < 15:
+
+                    print(
+                        "Could not extract useful text."
+                    )
+
+                    continue
+
+                doc = Document(
+                    page_content=extracted_text,
+                    metadata={
+                        "source": basename,
+                        "source_lower": basename.lower(),
+                    },
+                )
+
+                splitter = RecursiveCharacterTextSplitter(
+                    chunk_size=1000,
+                    chunk_overlap=200,
+                )
+
+                split_docs = (
+                    splitter.split_documents(
+                        [doc]
+                    )
+                )
+
+                vectorStore.add_documents(
+                    split_docs
+                )
+
+                label = register_source(
+                    basename
+                )
+
+                print(
+                    f"Success! Stored "
+                    f"{len(split_docs)} chunks. "
+                    f"Label: {label}"
+                )
+
             except Exception as e:
-                print(f"Error processing image: {e}")
-            continue
-        # -----------------------------------------------------------------
 
-        # RAG Query Logic (document scoping + repeated-question widening + fallback)
-        answer = answer_query(query)
-        print(f"\nAI: {answer}")
+                print(
+                    f"Error processing image: {e}"
+                )
+
+            continue
+
+        answer = answer_query(
+            query
+        )
+
+        print(
+            f"\nAI: {answer}"
+        )

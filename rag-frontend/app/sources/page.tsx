@@ -1,8 +1,9 @@
-// FILE: app/sources/page.tsx
 "use client";
 
 import { useEffect, useRef, useState } from "react";
 import Sidebar from "@/components/Sidebar";
+import AuthGuard from "@/components/AuthGuard";
+import { logout } from "@/lib/auth";
 import TopBar from "@/components/TopBar";
 import { IconUpload, IconFile, IconGlobe, IconNotepad, IconWipe } from "@/components/icons";
 import { ACCENT_GRADIENT, LAVENDER_CHIP, NEUTRAL_BADGE, CARD } from "@/lib/theme";
@@ -105,8 +106,16 @@ export default function SourcesPage() {
   };
 
   return (
-    <div className="flex h-[100dvh] w-full overflow-hidden bg-white text-gray-900 antialiased">
-      <Sidebar active="sources" isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
+    <AuthGuard>
+      {(user) => (
+        <div className="flex h-[100dvh] w-full overflow-hidden bg-white text-gray-900 antialiased">
+          <Sidebar
+            active="sources"
+            userEmail={user.email}
+            onLogout={() => { logout(); router.push("/login"); }}
+            isOpen={isSidebarOpen}
+            onClose={() => setIsSidebarOpen(false)}
+          />
 
       <main className="flex-1 flex flex-col min-w-0">
         <TopBar mode="global" activeTab="sources" onOpenSidebar={() => setIsSidebarOpen(true)} />
@@ -263,6 +272,8 @@ export default function SourcesPage() {
         className="hidden"
         onChange={(e) => addFiles(e.target.files)}
       />
-    </div>
+        </div>
+      )}
+    </AuthGuard>
   );
 }

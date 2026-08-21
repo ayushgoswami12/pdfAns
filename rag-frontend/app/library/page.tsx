@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Sidebar from "@/components/Sidebar";
+import AuthGuard from "@/components/AuthGuard";
+import { logout } from "@/lib/auth";
 import UploadIndicatorStack, { UploadJob } from "@/components/UploadIndicator";
 import { IconSearch, IconFile, IconPlus, IconUploadCloud, IconTrash } from "@/components/icons";
 import { ACCENT_GRADIENT } from "@/lib/theme";
@@ -129,8 +131,16 @@ export default function LibraryPage() {
   };
 
   return (
-    <div className="flex h-[100dvh] w-full overflow-hidden bg-white text-gray-900 antialiased relative">
-      <Sidebar active="library" isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
+    <AuthGuard>
+      {(user) => (
+        <div className="flex h-[100dvh] w-full overflow-hidden bg-white text-gray-900 antialiased relative">
+          <Sidebar
+            active="library"
+            userEmail={user.email}
+            onLogout={() => { logout(); router.push("/login"); }}
+            isOpen={isSidebarOpen}
+            onClose={() => setIsSidebarOpen(false)}
+          />
 
       <main className="flex-1 flex flex-col min-w-0 overflow-y-auto custom-scrollbar">
         <div className="px-5 sm:px-10 py-8 max-w-6xl w-full mx-auto">
@@ -267,6 +277,8 @@ export default function LibraryPage() {
         className="hidden"
         onChange={(e) => handleAddFiles(e.target.files)}
       />
-    </div>
+        </div>
+      )}
+    </AuthGuard>
   );
 }

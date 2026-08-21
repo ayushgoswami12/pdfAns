@@ -4,6 +4,8 @@
 import { useEffect, useMemo, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Sidebar from "@/components/Sidebar";
+import AuthGuard from "@/components/AuthGuard";
+import { logout } from "@/lib/auth";
 import { IconSearch, IconFile, IconPlus, IconUploadCloud } from "@/components/icons";
 import { ACCENT_GRADIENT } from "@/lib/theme";
 import { listSources, uploadFile, SourceRow } from "@/lib/api";
