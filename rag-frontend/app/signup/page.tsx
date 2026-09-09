@@ -1,10 +1,9 @@
-// FILE: app/signup/page.tsx
 "use client";
 
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { signup } from "@/lib/auth";
+import { getApiBase, setToken } from "@/lib/api";
 import { IconDiamond } from "@/components/icons";
 
 export default function SignupPage() {
@@ -26,6 +25,11 @@ export default function SignupPage() {
       return;
     }
 
+    if (!email.trim()) {
+      setError("Please enter your email.");
+      return;
+    }
+
     if (password.length < 6) {
       setError("Password must be at least 6 characters.");
       return;
@@ -34,10 +38,52 @@ export default function SignupPage() {
     setLoading(true);
 
     try {
-      await signup(email.trim(), password, name.trim());
+      const base = await getApiBase();
+
+      const response = await fetch(`${base}/auth/signup`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({
+          name: name.trim(),
+          email: email.trim().toLowerCase(),
+          password,
+        }),
+      });
+
+      let data: any = {};
+
+      try {
+        data = await response.json();
+      } catch {
+        // Server returned a non-JSON response.
+      }
+
+      if (!response.ok) {
+        throw new Error(
+          data.detail ||
+            data.message ||
+            `Signup failed (${response.status})`
+        );
+      }
+
+      if (!data.access_token) {
+        throw new Error(
+          "Account was created, but no login token was returned."
+        );
+      }
+
+      setToken(data.access_token);
+
       router.push("/chat");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Signup failed");
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Unable to create your account."
+      );
     } finally {
       setLoading(false);
     }
