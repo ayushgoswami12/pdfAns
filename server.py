@@ -221,10 +221,16 @@ async def root():
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
+        # Local development
         "http://localhost:3000",
         "http://127.0.0.1:3000",
         "http://localhost:3001",
         "http://127.0.0.1:3001",
+
+        # Vercel production frontend
+        "https://scholarai-mu.vercel.app",
+
+        # Previous Vercel URL
         "https://scholarai.vercel.app",
     ],
     allow_credentials=True,
@@ -355,6 +361,7 @@ async def response_generator(
         if session_id is not None:
 
             try:
+
                 db.add_message(
                     user_id,
                     session_id,
@@ -408,13 +415,16 @@ async def upload_pdf(
         auth.get_current_user
     ),
 ):
+
     if not file.filename.lower().endswith(".pdf"):
+
         raise HTTPException(
             status_code=400,
             detail="Only PDF files are allowed",
         )
 
     try:
+
         content = await file.read()
 
         size_bytes = len(content)
@@ -423,7 +433,9 @@ async def upload_pdf(
             delete=False,
             suffix=".pdf",
         ) as tmp_file:
+
             tmp_file.write(content)
+
             tmp_file_path = tmp_file.name
 
         loader = PyPDFLoader(
@@ -439,6 +451,7 @@ async def upload_pdf(
                 for document in documents
             ).strip()
         ):
+
             os.remove(
                 tmp_file_path
             )
@@ -503,6 +516,7 @@ async def upload_pdf(
         }
 
     except HTTPException:
+
         raise
 
     except Exception as e:
@@ -541,6 +555,7 @@ async def delete_source_route(
         auth.get_current_user
     ),
 ):
+
     try:
 
         index.delete(
@@ -599,6 +614,7 @@ async def create_session_route(
         auth.get_current_user
     ),
 ):
+
     session_id = db.create_session(
         user_id,
         title,
@@ -619,6 +635,7 @@ async def delete_session_route(
         auth.get_current_user
     ),
 ):
+
     db.delete_session(
         user_id,
         session_id,
@@ -640,6 +657,7 @@ async def get_session_messages(
         auth.get_current_user
     ),
 ):
+
     return {
         "messages": db.list_messages(
             user_id,
@@ -671,6 +689,7 @@ async def generate_quiz_route(
         auth.get_current_user
     ),
 ):
+
     num_questions = max(
         1,
         min(
@@ -689,6 +708,7 @@ async def generate_quiz_route(
     )
 
     if not messages:
+
         raise HTTPException(
             status_code=400,
             detail=(
@@ -775,6 +795,7 @@ async def generate_quiz_route(
     )
 
     if not pdf_context:
+
         pdf_context = (
             "No relevant PDF material was found "
             "for this current conversation."
@@ -944,6 +965,7 @@ async def submit_quiz_route(
         auth.get_current_user
     ),
 ):
+
     answers = [
         {
             "question_id":
