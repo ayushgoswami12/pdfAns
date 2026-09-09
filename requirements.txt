@@ -10,4 +10,5 @@ langchain-pinecone
 pinecone-client
 pypdf
 bcrypt
+PyJWT
 python-multipart
