@@ -9,4 +9,5 @@ langchain-core
 langchain-pinecone
 pinecone-client
 pypdf
+bcrypt
 python-multipart
