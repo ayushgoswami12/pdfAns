@@ -247,15 +247,18 @@ async def root():
 # CORS
 # ============================================================
 #
-# IMPORTANT:
-# Vercel can create different deployment URLs such as:
+# Local development:
+#   http://localhost:3000
+#   http://localhost:3001
 #
-# https://scholarai-mu.vercel.app
+# Production:
+#   https://scholarai-mu.vercel.app
 #
-# https://scholarai-citiwcuwt-ayushgoswami12s-projects.vercel.app
+# Vercel preview deployments can have different URLs such as:
+#   https://scholarai-citiwcuwt-ayushgoswami12s-projects.vercel.app
 #
-# Therefore we use both exact origins and a regex for
-# ScholarAI Vercel deployments.
+# The regex below allows ScholarAI Vercel deployments without
+# having to add every new Vercel preview URL manually.
 # ============================================================
 
 app.add_middleware(
@@ -268,12 +271,21 @@ app.add_middleware(
         "http://localhost:3001",
         "http://127.0.0.1:3001",
 
-        # Main Vercel domain
+        # Stable ScholarAI Vercel domains
         "https://scholarai-mu.vercel.app",
         "https://scholarai.vercel.app",
     ],
 
-    allow_origin_regex=r"^https://scholarai-[a-zA-Z0-9-]+\.vercel\.app$",
+    # Allows:
+    # https://scholarai-xxxxx.vercel.app
+    # https://scholarai-citiwcuwt-ayushgoswami12s-projects.vercel.app
+    #
+    # Also allows the stable:
+    # https://scholarai.vercel.app
+    #
+    # while keeping the allowed pattern limited to domains
+    # beginning with "scholarai".
+    allow_origin_regex=r"^https://scholarai(?:-[a-zA-Z0-9-]+)?\.vercel\.app$",
 
     allow_credentials=True,
     allow_methods=["*"],
