@@ -10,13 +10,9 @@ from fastapi import (
 )
 
 from fastapi.responses import StreamingResponse
-
 from fastapi.middleware.cors import CORSMiddleware
-
 from pydantic import BaseModel
-
 from typing import Optional
-
 import tempfile
 import os
 import asyncio
@@ -49,6 +45,7 @@ try:
     )
 
 except Exception as e:
+
     print(
         "ERROR importing RAG components:",
         str(e),
@@ -79,6 +76,7 @@ app = FastAPI()
 # AUTHENTICATION
 # ============================================================
 
+
 class SignupRequest(BaseModel):
     email: str
     password: str
@@ -90,10 +88,16 @@ class LoginRequest(BaseModel):
     password: str
 
 
+# ============================================================
+# SIGNUP
+# ============================================================
+
+
 @app.post("/auth/signup")
 async def signup(
     data: SignupRequest,
 ):
+
     email = data.email.strip().lower()
     password = data.password
     name = data.name.strip()
@@ -111,6 +115,7 @@ async def signup(
         )
 
     if db.get_user_by_email(email):
+
         raise HTTPException(
             status_code=400,
             detail="An account with this email already exists.",
@@ -137,10 +142,16 @@ async def signup(
     }
 
 
+# ============================================================
+# LOGIN
+# ============================================================
+
+
 @app.post("/auth/login")
 async def login(
     data: LoginRequest,
 ):
+
     email = data.email.strip().lower()
     password = data.password
 
@@ -153,12 +164,15 @@ async def login(
             user["password_hash"],
         )
     ):
+
         raise HTTPException(
             status_code=401,
             detail="Invalid email or password.",
         )
 
-    token = auth.create_access_token(user["id"])
+    token = auth.create_access_token(
+        user["id"]
+    )
 
     return {
         "access_token": token,
@@ -171,15 +185,22 @@ async def login(
     }
 
 
+# ============================================================
+# CURRENT USER
+# ============================================================
+
+
 @app.get("/auth/me")
 async def me(
     user_id: int = Depends(
         auth.get_current_user
     ),
 ):
+
     user = db.get_user_by_id(user_id)
 
     if not user:
+
         raise HTTPException(
             status_code=401,
             detail="User no longer exists.",
@@ -196,8 +217,10 @@ async def me(
 # DATABASE STARTUP
 # ============================================================
 
+
 @app.on_event("startup")
 async def on_startup():
+
     db.init_db()
 
     print(
@@ -206,8 +229,14 @@ async def on_startup():
     )
 
 
+# ============================================================
+# ROOT
+# ============================================================
+
+
 @app.get("/")
 async def root():
+
     return {
         "status": "ok",
         "message": "ScholarAI backend is running",
@@ -227,11 +256,9 @@ app.add_middleware(
         "http://localhost:3001",
         "http://127.0.0.1:3001",
 
-        # Vercel production frontend
-        "https://scholarai-mu.vercel.app",
-
-        # Previous Vercel URL
+        # Vercel production
         "https://scholarai.vercel.app",
+        "https://scholarai-mu.vercel.app",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -243,11 +270,13 @@ app.add_middleware(
 # CHAT
 # ============================================================
 
+
 async def response_generator(
     query: str,
     session_id: Optional[int],
     user_id: int,
 ):
+
     print(
         f"Received query: {query} "
         f"(user_id={user_id})"
@@ -256,6 +285,7 @@ async def response_generator(
     full_answer = ""
 
     try:
+
         docs = get_user_context_docs(
             query,
             user_id=user_id,
@@ -281,7 +311,8 @@ async def response_generator(
         answer_text = first_pass.content
 
         went_out_of_material = (
-            SENTINEL.lower() in answer_text.lower()
+            SENTINEL.lower()
+            in answer_text.lower()
             or not context.strip()
         )
 
@@ -294,6 +325,7 @@ async def response_generator(
                     }
                 )
             ):
+
                 full_answer += fb_chunk.content
 
                 yield fb_chunk.content
@@ -326,7 +358,10 @@ async def response_generator(
                 len(answer_text),
                 20,
             ):
-                piece = answer_text[i:i + 20]
+
+                piece = answer_text[
+                    i:i + 20
+                ]
 
                 full_answer += piece
 
@@ -337,7 +372,8 @@ async def response_generator(
             if was_supplemented:
 
                 suffix = (
-                    "\n\n(expanded beyond your source material)"
+                    "\n\n"
+                    "(expanded beyond your source material)"
                 )
 
                 full_answer += suffix
@@ -346,7 +382,9 @@ async def response_generator(
 
     except Exception as e:
 
-        error_msg = f"⚠️ Error: {str(e)}"
+        error_msg = (
+            f"⚠️ Error: {str(e)}"
+        )
 
         full_answer += error_msg
 
@@ -381,9 +419,15 @@ async def response_generator(
             except Exception as e:
 
                 print(
-                    "WARNING: failed to persist chat history:",
+                    "WARNING: failed to persist "
+                    "chat history:",
                     e,
                 )
+
+
+# ============================================================
+# CHAT API
+# ============================================================
 
 
 @app.post("/api/chat")
@@ -394,6 +438,7 @@ async def chat(
         auth.get_current_user
     ),
 ):
+
     return StreamingResponse(
         response_generator(
             query,
@@ -407,6 +452,7 @@ async def chat(
 # ============================================================
 # UPLOAD
 # ============================================================
+
 
 @app.post("/api/upload")
 async def upload_pdf(
@@ -468,13 +514,17 @@ async def upload_pdf(
 
         for document in documents:
 
-            document.metadata["source"] = basename
+            document.metadata[
+                "source"
+            ] = basename
 
             document.metadata[
                 "source_lower"
             ] = basename.lower()
 
-            document.metadata["user_id"] = user_id
+            document.metadata[
+                "user_id"
+            ] = user_id
 
         splitter = RecursiveCharacterTextSplitter(
             chunk_size=1500,
@@ -535,14 +585,18 @@ async def upload_pdf(
 # SOURCES
 # ============================================================
 
+
 @app.get("/api/sources")
 async def get_sources(
     user_id: int = Depends(
         auth.get_current_user
     ),
 ):
+
     return {
-        "sources": db.list_sources(user_id)
+        "sources": db.list_sources(
+            user_id
+        )
     }
 
 
@@ -596,14 +650,18 @@ async def delete_source_route(
 # SESSIONS
 # ============================================================
 
+
 @app.get("/api/sessions")
 async def get_sessions(
     user_id: int = Depends(
         auth.get_current_user
     ),
 ):
+
     return {
-        "sessions": db.list_sessions(user_id)
+        "sessions": db.list_sessions(
+            user_id
+        )
     }
 
 
@@ -669,6 +727,7 @@ async def get_session_messages(
 # ============================================================
 # QUIZ
 # ============================================================
+
 
 class QuizAnswer(BaseModel):
     question_id: int
@@ -846,8 +905,8 @@ async def generate_quiz_route(
 
     new_count = max(
         0,
-        num_questions -
-        len(weak_questions),
+        num_questions
+        - len(weak_questions),
     )
 
     generated_new = []
@@ -863,14 +922,6 @@ async def generate_quiz_route(
 
     # ========================================================
     # FINAL QUIZ
-    #
-    # Example:
-    #
-    # Requested = 5
-    # Wrong = 3
-    #
-    # Final:
-    # 3 old wrong + 2 new
     # ========================================================
 
     final_questions = []
@@ -894,6 +945,7 @@ async def generate_quiz_route(
             == question["question"]
             for existing in final_questions
         ):
+
             continue
 
         final_questions.append(
@@ -955,6 +1007,7 @@ async def generate_quiz_route(
 # QUIZ SUBMISSION
 # ============================================================
 
+
 @app.post(
     "/api/quiz/{attempt_id}/submit"
 )
@@ -998,6 +1051,7 @@ async def submit_quiz_route(
 # ============================================================
 # START SERVER
 # ============================================================
+
 
 if __name__ == "__main__":
 
