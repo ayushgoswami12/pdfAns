@@ -246,9 +246,21 @@ async def root():
 # ============================================================
 # CORS
 # ============================================================
+#
+# IMPORTANT:
+# Vercel can create different deployment URLs such as:
+#
+# https://scholarai-mu.vercel.app
+#
+# https://scholarai-citiwcuwt-ayushgoswami12s-projects.vercel.app
+#
+# Therefore we use both exact origins and a regex for
+# ScholarAI Vercel deployments.
+# ============================================================
 
 app.add_middleware(
     CORSMiddleware,
+
     allow_origins=[
         # Local development
         "http://localhost:3000",
@@ -256,10 +268,13 @@ app.add_middleware(
         "http://localhost:3001",
         "http://127.0.0.1:3001",
 
-        # Vercel production
-        "https://scholarai.vercel.app",
+        # Main Vercel domain
         "https://scholarai-mu.vercel.app",
+        "https://scholarai.vercel.app",
     ],
+
+    allow_origin_regex=r"^https://scholarai-[a-zA-Z0-9-]+\.vercel\.app$",
+
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
