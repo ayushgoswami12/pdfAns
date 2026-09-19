@@ -10,15 +10,21 @@ from fastapi import (
 )
 
 from fastapi.responses import StreamingResponse
+
 from fastapi.middleware.cors import CORSMiddleware
+
 from pydantic import BaseModel
+
 from typing import Optional
+
 import tempfile
 import os
 import asyncio
 import traceback
 import sys
 import json
+import base64
+import mimetypes
 
 
 # ============================================================
@@ -28,6 +34,7 @@ import json
 try:
     from main import (
         llm,
+        vision_llm,
         prompt,
         fallback_prompt,
         vectorStore,
@@ -45,7 +52,6 @@ try:
     )
 
 except Exception as e:
-
     print(
         "ERROR importing RAG components:",
         str(e),
@@ -63,6 +69,8 @@ import auth
 
 
 from langchain_community.document_loaders import PyPDFLoader
+from langchain_core.messages import HumanMessage
+from langchain_core.documents import Document
 
 from langchain_text_splitters import (
     RecursiveCharacterTextSplitter,
@@ -73,9 +81,76 @@ app = FastAPI()
 
 
 # ============================================================
-# AUTHENTICATION
+# VISION OCR RATE-LIMIT PROTECTION
 # ============================================================
 
+# Only one OCR request is sent to Mistral at a time.
+#
+# This is important because the frontend can upload multiple
+# images at the same time using Promise.all().
+#
+# Without this, several Pixtral requests can reach Mistral
+# simultaneously and trigger HTTP 429 rate-limit errors.
+vision_ocr_semaphore = asyncio.Semaphore(1)
+
+
+async def call_vision_ocr_with_retry(
+    message,
+    max_retries: int = 3,
+):
+    """
+    Call Pixtral Vision while handling temporary Mistral
+    HTTP 429 rate-limit responses.
+
+    Retry schedule:
+        attempt 1 -> wait 1 second
+        attempt 2 -> wait 2 seconds
+        attempt 3 -> wait 4 seconds
+
+    The semaphore is released while waiting so another
+    request does not hold the OCR slot unnecessarily.
+    """
+
+    for attempt in range(max_retries + 1):
+
+        try:
+            async with vision_ocr_semaphore:
+
+                return await asyncio.to_thread(
+                    vision_llm.invoke,
+                    [message],
+                )
+
+        except Exception as exc:
+
+            error_text = str(exc)
+
+            # Only retry rate-limit errors.
+            #
+            # Other errors should immediately reach the
+            # upload endpoint so the actual problem is visible.
+            if (
+                "429" not in error_text
+                or attempt >= max_retries
+            ):
+                raise
+
+            wait_seconds = 2 ** attempt
+
+            print(
+                f"Mistral OCR rate limited (429). "
+                f"Retrying in {wait_seconds}s "
+                f"(attempt {attempt + 1}/{max_retries})..."
+            )
+
+            await asyncio.sleep(
+                wait_seconds
+            )
+
+
+# ============================================================
+# AUTHENTICATION
+# ============================================================
 
 class SignupRequest(BaseModel):
     email: str
@@ -86,11 +161,6 @@ class SignupRequest(BaseModel):
 class LoginRequest(BaseModel):
     email: str
     password: str
-
-
-# ============================================================
-# SIGNUP
-# ============================================================
 
 
 @app.post("/auth/signup")
@@ -115,13 +185,14 @@ async def signup(
         )
 
     if db.get_user_by_email(email):
-
         raise HTTPException(
             status_code=400,
             detail="An account with this email already exists.",
         )
 
-    password_hash = auth.hash_password(password)
+    password_hash = auth.hash_password(
+        password
+    )
 
     user_id = db.create_user(
         email=email,
@@ -129,7 +200,9 @@ async def signup(
         name=name,
     )
 
-    token = auth.create_access_token(user_id)
+    token = auth.create_access_token(
+        user_id
+    )
 
     return {
         "access_token": token,
@@ -142,11 +215,6 @@ async def signup(
     }
 
 
-# ============================================================
-# LOGIN
-# ============================================================
-
-
 @app.post("/auth/login")
 async def login(
     data: LoginRequest,
@@ -155,7 +223,9 @@ async def login(
     email = data.email.strip().lower()
     password = data.password
 
-    user = db.get_user_by_email(email)
+    user = db.get_user_by_email(
+        email
+    )
 
     if (
         not user
@@ -164,7 +234,6 @@ async def login(
             user["password_hash"],
         )
     ):
-
         raise HTTPException(
             status_code=401,
             detail="Invalid email or password.",
@@ -185,11 +254,6 @@ async def login(
     }
 
 
-# ============================================================
-# CURRENT USER
-# ============================================================
-
-
 @app.get("/auth/me")
 async def me(
     user_id: int = Depends(
@@ -197,10 +261,11 @@ async def me(
     ),
 ):
 
-    user = db.get_user_by_id(user_id)
+    user = db.get_user_by_id(
+        user_id
+    )
 
     if not user:
-
         raise HTTPException(
             status_code=401,
             detail="User no longer exists.",
@@ -217,7 +282,6 @@ async def me(
 # DATABASE STARTUP
 # ============================================================
 
-
 @app.on_event("startup")
 async def on_startup():
 
@@ -227,11 +291,6 @@ async def on_startup():
         "Database ready at",
         db.DB_PATH,
     )
-
-
-# ============================================================
-# ROOT
-# ============================================================
 
 
 @app.get("/")
@@ -246,46 +305,27 @@ async def root():
 # ============================================================
 # CORS
 # ============================================================
-#
-# Local development:
-#   http://localhost:3000
-#   http://localhost:3001
-#
-# Production:
-#   https://scholarai-mu.vercel.app
-#
-# Vercel preview deployments can have different URLs such as:
-#   https://scholarai-citiwcuwt-ayushgoswami12s-projects.vercel.app
-#
-# The regex below allows ScholarAI Vercel deployments without
-# having to add every new Vercel preview URL manually.
-# ============================================================
 
 app.add_middleware(
     CORSMiddleware,
 
     allow_origins=[
-        # Local development
         "http://localhost:3000",
         "http://127.0.0.1:3000",
         "http://localhost:3001",
         "http://127.0.0.1:3001",
 
-        # Stable ScholarAI Vercel domains
         "https://scholarai-mu.vercel.app",
         "https://scholarai.vercel.app",
     ],
 
-    # Allows:
-    # https://scholarai-xxxxx.vercel.app
-    # https://scholarai-citiwcuwt-ayushgoswami12s-projects.vercel.app
+    # Allows Vercel preview deployments such as:
     #
-    # Also allows the stable:
-    # https://scholarai.vercel.app
+    # scholarai-citiwcuwt-ayushgoswami12s-projects.vercel.app
     #
-    # while keeping the allowed pattern limited to domains
-    # beginning with "scholarai".
-    allow_origin_regex=r"^https://scholarai(?:-[a-zA-Z0-9-]+)?\.vercel\.app$",
+    allow_origin_regex=(
+        r"^https://scholarai-[a-zA-Z0-9-]+\.vercel\.app$"
+    ),
 
     allow_credentials=True,
     allow_methods=["*"],
@@ -296,7 +336,6 @@ app.add_middleware(
 # ============================================================
 # CHAT
 # ============================================================
-
 
 async def response_generator(
     query: str,
@@ -316,7 +355,9 @@ async def response_generator(
         docs = get_user_context_docs(
             query,
             user_id=user_id,
-            wide=is_repeated_question_query(query),
+            wide=is_repeated_question_query(
+                query
+            ),
         )
 
         context = "\n\n".join(
@@ -357,9 +398,13 @@ async def response_generator(
 
                 yield fb_chunk.content
 
-                await asyncio.sleep(0.01)
+                await asyncio.sleep(
+                    0.01
+                )
 
-            suffix = "\n\n(outside the material)"
+            suffix = (
+                "\n\n(outside the material)"
+            )
 
             full_answer += suffix
 
@@ -368,7 +413,8 @@ async def response_generator(
         else:
 
             was_supplemented = (
-                SUPPLEMENT_TAG in answer_text
+                SUPPLEMENT_TAG
+                in answer_text
             )
 
             answer_text = (
@@ -394,13 +440,16 @@ async def response_generator(
 
                 yield piece
 
-                await asyncio.sleep(0.01)
+                await asyncio.sleep(
+                    0.01
+                )
 
             if was_supplemented:
 
                 suffix = (
                     "\n\n"
-                    "(expanded beyond your source material)"
+                    "(expanded beyond your "
+                    "source material)"
                 )
 
                 full_answer += suffix
@@ -443,18 +492,15 @@ async def response_generator(
                         full_answer,
                     )
 
-            except Exception as e:
+            except Exception:
 
                 print(
-                    "WARNING: failed to persist "
-                    "chat history:",
-                    e,
+                    "Failed to save chat messages:"
                 )
 
-
-# ============================================================
-# CHAT API
-# ============================================================
+                print(
+                    traceback.format_exc()
+                )
 
 
 @app.post("/api/chat")
@@ -480,42 +526,335 @@ async def chat(
 # UPLOAD
 # ============================================================
 
-
 @app.post("/api/upload")
-async def upload_pdf(
+async def upload_file(
     file: UploadFile = File(...),
     user_id: int = Depends(
         auth.get_current_user
     ),
 ):
 
-    if not file.filename.lower().endswith(".pdf"):
+    """
+    Upload and index a PDF or image.
+
+    PDFs:
+        PyPDFLoader
+            ↓
+        extracted text
+            ↓
+        chunks
+            ↓
+        Pinecone
+
+    Images:
+        Pixtral Vision OCR
+            ↓
+        extracted text
+            ↓
+        chunks
+            ↓
+        Pinecone
+
+    Every indexed document receives user_id metadata
+    so each user's knowledge repository stays isolated.
+    """
+
+    if not file.filename:
 
         raise HTTPException(
             status_code=400,
-            detail="Only PDF files are allowed",
+            detail="A filename is required.",
+        )
+
+    basename = os.path.basename(
+        file.filename
+    )
+
+    extension = os.path.splitext(
+        basename
+    )[1].lower()
+
+    allowed_images = {
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".webp",
+    }
+
+    if (
+        extension != ".pdf"
+        and extension not in allowed_images
+    ):
+
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Unsupported file type. "
+                "Upload a PDF, PNG, JPG, "
+                "JPEG, or WEBP image."
+            ),
         )
 
     try:
 
         content = await file.read()
 
-        size_bytes = len(content)
+        size_bytes = len(
+            content
+        )
+
+        if size_bytes == 0:
+
+            raise HTTPException(
+                status_code=400,
+                detail="The uploaded file is empty.",
+            )
+
+        # ========================================================
+        # IMAGE OCR
+        # ========================================================
+
+        if extension in allowed_images:
+
+            print(
+                f"Reading image with Pixtral Vision: "
+                f"{basename} "
+                f"(user_id={user_id})"
+            )
+
+            mime_type = (
+                file.content_type
+                or mimetypes.guess_type(
+                    basename
+                )[0]
+                or "image/jpeg"
+            )
+
+            if mime_type not in {
+                "image/png",
+                "image/jpeg",
+                "image/webp",
+            }:
+
+                mime_type = {
+                    ".png": "image/png",
+                    ".jpg": "image/jpeg",
+                    ".jpeg": "image/jpeg",
+                    ".webp": "image/webp",
+                }.get(
+                    extension,
+                    "image/jpeg",
+                )
+
+            base64_image = (
+                base64.b64encode(
+                    content
+                ).decode("utf-8")
+            )
+
+            # ----------------------------------------------------
+            # OCR PROMPT
+            # ----------------------------------------------------
+
+            message = HumanMessage(
+                content=[
+                    {
+                        "type": "text",
+                        "text": (
+                            "Carefully extract ALL "
+                            "readable text from this image. "
+                            "This may be a study note, "
+                            "textbook page, exam paper, "
+                            "question paper, screenshot, "
+                            "diagram with labels, or "
+                            "other educational material. "
+                            "Preserve headings, question "
+                            "numbers, options, formulas, "
+                            "symbols, tables, and the "
+                            "original logical order as "
+                            "accurately as possible. "
+                            "Do not summarize or explain "
+                            "anything; transcribe the "
+                            "content. If there is no "
+                            "meaningful readable text, "
+                            "reply exactly with "
+                            "'NO_TEXT_FOUND'."
+                        ),
+                    },
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": (
+                                f"data:{mime_type};"
+                                f"base64,{base64_image}"
+                            )
+                        },
+                    },
+                ]
+            )
+
+            # ----------------------------------------------------
+            # PIXTRAL OCR WITH RATE-LIMIT PROTECTION
+            # ----------------------------------------------------
+
+            vision_response = (
+                await call_vision_ocr_with_retry(
+                    message,
+                    max_retries=3,
+                )
+            )
+
+            extracted_text = str(
+                vision_response.content
+            ).strip()
+
+            # ----------------------------------------------------
+            # OCR VALIDATION
+            # ----------------------------------------------------
+
+            if (
+                not extracted_text
+                or (
+                    "NO_TEXT_FOUND"
+                    in extracted_text.upper()
+                )
+                or len(extracted_text) < 15
+            ):
+
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        "Could not extract meaningful "
+                        "text from this image. "
+                        "Try a clearer or "
+                        "higher-resolution image."
+                    ),
+                )
+
+            print(
+                f"OCR extracted "
+                f"{len(extracted_text)} characters "
+                f"from '{basename}'"
+            )
+
+            # ----------------------------------------------------
+            # CREATE LANGCHAIN DOCUMENT
+            # ----------------------------------------------------
+
+            document = Document(
+                page_content=extracted_text,
+
+                metadata={
+                    "source": basename,
+                    "source_lower": basename.lower(),
+                    "user_id": user_id,
+                    "file_type": "image",
+                    "ocr": True,
+                },
+            )
+
+            # ----------------------------------------------------
+            # CHUNK OCR TEXT
+            # ----------------------------------------------------
+
+            splitter = (
+                RecursiveCharacterTextSplitter(
+                    chunk_size=1500,
+                    chunk_overlap=250,
+                )
+            )
+
+            chunks = splitter.split_documents(
+                [document]
+            )
+
+            if not chunks:
+
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        "The image produced no "
+                        "indexable text."
+                    ),
+                )
+
+            # ----------------------------------------------------
+            # STORE OCR TEXT IN PINECONE
+            # ----------------------------------------------------
+
+            vectorStore.add_documents(
+                chunks
+            )
+
+            # ----------------------------------------------------
+            # STORE SOURCE INFORMATION
+            # ----------------------------------------------------
+
+            label = register_source(
+                basename
+            )
+
+            db.add_source(
+                user_id=user_id,
+                filename=basename,
+                label=label,
+                size_bytes=size_bytes,
+                chunk_count=len(chunks),
+            )
+
+            print(
+                f"OCR success: stored "
+                f"{len(chunks)} chunks from "
+                f"'{basename}'"
+            )
+
+            return {
+                "message": (
+                    f"Successfully extracted "
+                    f"and processed {basename}."
+                ),
+                "label": label,
+                "filename": basename,
+                "size_bytes": size_bytes,
+                "chunk_count": len(chunks),
+                "file_type": "image",
+                "ocr": True,
+            }
+
+        # ========================================================
+        # PDF TEXT EXTRACTION
+        # ========================================================
 
         with tempfile.NamedTemporaryFile(
             delete=False,
             suffix=".pdf",
         ) as tmp_file:
 
-            tmp_file.write(content)
+            tmp_file.write(
+                content
+            )
 
-            tmp_file_path = tmp_file.name
+            tmp_file_path = (
+                tmp_file.name
+            )
 
-        loader = PyPDFLoader(
-            tmp_file_path
-        )
+        try:
 
-        documents = loader.load()
+            loader = PyPDFLoader(
+                tmp_file_path
+            )
+
+            documents = loader.load()
+
+        finally:
+
+            if os.path.exists(
+                tmp_file_path
+            ):
+
+                os.remove(
+                    tmp_file_path
+                )
 
         if (
             not documents
@@ -525,19 +864,19 @@ async def upload_pdf(
             ).strip()
         ):
 
-            os.remove(
-                tmp_file_path
-            )
-
             raise HTTPException(
                 status_code=422,
                 detail=(
-                    "Could not extract any text "
-                    "from this PDF."
+                    "Could not extract any "
+                    "text from this PDF. "
+                    "It may be a scanned/"
+                    "image-based PDF."
                 ),
             )
 
-        basename = file.filename
+        # --------------------------------------------------------
+        # ADD METADATA TO PDF DOCUMENTS
+        # --------------------------------------------------------
 
         for document in documents:
 
@@ -553,22 +892,50 @@ async def upload_pdf(
                 "user_id"
             ] = user_id
 
-        splitter = RecursiveCharacterTextSplitter(
-            chunk_size=1500,
-            chunk_overlap=250,
+            document.metadata[
+                "file_type"
+            ] = "pdf"
+
+            document.metadata[
+                "ocr"
+            ] = False
+
+        # --------------------------------------------------------
+        # CHUNK PDF
+        # --------------------------------------------------------
+
+        splitter = (
+            RecursiveCharacterTextSplitter(
+                chunk_size=1500,
+                chunk_overlap=250,
+            )
         )
 
         chunks = splitter.split_documents(
             documents
         )
 
+        if not chunks:
+
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "The PDF produced no "
+                    "indexable text."
+                ),
+            )
+
+        # --------------------------------------------------------
+        # STORE PDF IN PINECONE
+        # --------------------------------------------------------
+
         vectorStore.add_documents(
             chunks
         )
 
-        os.remove(
-            tmp_file_path
-        )
+        # --------------------------------------------------------
+        # REGISTER SOURCE
+        # --------------------------------------------------------
 
         label = register_source(
             basename
@@ -582,18 +949,344 @@ async def upload_pdf(
             chunk_count=len(chunks),
         )
 
+        print(
+            f"PDF success: stored "
+            f"{len(chunks)} chunks from "
+            f"'{basename}'"
+        )
+
         return {
             "message": (
-                f"Successfully processed {basename}."
+                f"Successfully processed "
+                f"{basename}."
             ),
             "label": label,
             "filename": basename,
             "size_bytes": size_bytes,
             "chunk_count": len(chunks),
+            "file_type": "pdf",
+            "ocr": False,
         }
 
     except HTTPException:
+        raise
 
+    except Exception as e:
+
+        print(
+            "Upload processing error:"
+        )
+
+        print(
+            traceback.format_exc()
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                f"Failed to process "
+                f"{basename}: {str(e)}"
+            ),
+        )
+
+
+# ============================================================
+# SOURCES
+# ============================================================
+
+@app.get("/api/sources")
+async def list_sources(
+    user_id: int = Depends(
+        auth.get_current_user
+    ),
+):
+
+    try:
+
+        sources = db.get_sources(
+            user_id
+        )
+
+        return {
+            "sources": sources
+        }
+
+    except Exception as e:
+
+        print(
+            traceback.format_exc()
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail=str(e),
+        )
+
+
+@app.delete("/api/sources/{filename}")
+async def delete_source(
+    filename: str,
+    user_id: int = Depends(
+        auth.get_current_user
+    ),
+):
+
+    try:
+
+        safe_filename = os.path.basename(
+            filename
+        )
+
+        deleted = db.delete_source(
+            user_id,
+            safe_filename,
+        )
+
+        if not deleted:
+
+            raise HTTPException(
+                status_code=404,
+                detail="Source not found.",
+            )
+
+        # Delete matching vectors from Pinecone.
+        #
+        # The exact deletion behavior depends on the
+        # configured Pinecone index.
+        try:
+
+            index.delete(
+                filter={
+                    "source_lower":
+                        safe_filename.lower(),
+                    "user_id":
+                        user_id,
+                }
+            )
+
+        except Exception as vector_error:
+
+            print(
+                "Pinecone source deletion "
+                "warning:",
+                vector_error,
+            )
+
+        return {
+            "message": (
+                f"Deleted {safe_filename}"
+            )
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as e:
+
+        print(
+            traceback.format_exc()
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail=str(e),
+        )
+
+
+@app.delete("/api/sources")
+async def delete_all_sources(
+    user_id: int = Depends(
+        auth.get_current_user
+    ),
+):
+
+    try:
+
+        db.delete_all_sources(
+            user_id
+        )
+
+        try:
+
+            index.delete(
+                filter={
+                    "user_id": user_id
+                }
+            )
+
+        except Exception as vector_error:
+
+            print(
+                "Pinecone wipe warning:",
+                vector_error,
+            )
+
+        return {
+            "message": (
+                "All sources deleted."
+            )
+        }
+
+    except Exception as e:
+
+        print(
+            traceback.format_exc()
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail=str(e),
+        )
+
+
+# ============================================================
+# SESSIONS
+# ============================================================
+
+@app.get("/api/sessions")
+async def list_sessions(
+    user_id: int = Depends(
+        auth.get_current_user
+    ),
+):
+
+    try:
+
+        sessions = db.get_sessions(
+            user_id
+        )
+
+        return {
+            "sessions": sessions
+        }
+
+    except Exception as e:
+
+        print(
+            traceback.format_exc()
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail=str(e),
+        )
+
+
+@app.post("/api/sessions")
+async def create_session(
+    title: str = Form(...),
+    user_id: int = Depends(
+        auth.get_current_user
+    ),
+):
+
+    title = title.strip()
+
+    if not title:
+
+        title = "New Chat"
+
+    try:
+
+        session_id = db.create_session(
+            user_id=user_id,
+            title=title,
+        )
+
+        session = db.get_session(
+            user_id,
+            session_id,
+        )
+
+        return session
+
+    except Exception as e:
+
+        print(
+            traceback.format_exc()
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail=str(e),
+        )
+
+
+@app.delete("/api/sessions/{session_id}")
+async def delete_session(
+    session_id: int,
+    user_id: int = Depends(
+        auth.get_current_user
+    ),
+):
+
+    try:
+
+        deleted = db.delete_session(
+            user_id,
+            session_id,
+        )
+
+        if not deleted:
+
+            raise HTTPException(
+                status_code=404,
+                detail="Session not found.",
+            )
+
+        return {
+            "message": "Session deleted."
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as e:
+
+        print(
+            traceback.format_exc()
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail=str(e),
+        )
+
+
+@app.get(
+    "/api/sessions/{session_id}/messages"
+)
+async def get_session_messages(
+    session_id: int,
+    user_id: int = Depends(
+        auth.get_current_user
+    ),
+):
+
+    try:
+
+        session = db.get_session(
+            user_id,
+            session_id,
+        )
+
+        if not session:
+
+            raise HTTPException(
+                status_code=404,
+                detail="Session not found.",
+            )
+
+        messages = db.get_messages(
+            user_id,
+            session_id,
+        )
+
+        return {
+            "messages": messages
+        }
+
+    except HTTPException:
         raise
 
     except Exception as e:
@@ -609,166 +1302,13 @@ async def upload_pdf(
 
 
 # ============================================================
-# SOURCES
-# ============================================================
-
-
-@app.get("/api/sources")
-async def get_sources(
-    user_id: int = Depends(
-        auth.get_current_user
-    ),
-):
-
-    return {
-        "sources": db.list_sources(
-            user_id
-        )
-    }
-
-
-@app.delete(
-    "/api/sources/{filename}"
-)
-async def delete_source_route(
-    filename: str,
-    user_id: int = Depends(
-        auth.get_current_user
-    ),
-):
-
-    try:
-
-        index.delete(
-            filter={
-                "$and": [
-                    {
-                        "user_id": {
-                            "$eq": user_id
-                        }
-                    },
-                    {
-                        "source_lower": {
-                            "$eq": filename.lower()
-                        }
-                    },
-                ]
-            }
-        )
-
-    except Exception as e:
-
-        print(
-            "WARNING: Pinecone delete failed:",
-            e,
-        )
-
-    db.delete_source(
-        user_id,
-        filename,
-    )
-
-    return {
-        "message": f"Deleted {filename}"
-    }
-
-
-# ============================================================
-# SESSIONS
-# ============================================================
-
-
-@app.get("/api/sessions")
-async def get_sessions(
-    user_id: int = Depends(
-        auth.get_current_user
-    ),
-):
-
-    return {
-        "sessions": db.list_sessions(
-            user_id
-        )
-    }
-
-
-@app.post("/api/sessions")
-async def create_session_route(
-    title: str = Form("New Chat"),
-    user_id: int = Depends(
-        auth.get_current_user
-    ),
-):
-
-    session_id = db.create_session(
-        user_id,
-        title,
-    )
-
-    return {
-        "id": session_id,
-        "title": title,
-    }
-
-
-@app.delete(
-    "/api/sessions/{session_id}"
-)
-async def delete_session_route(
-    session_id: int,
-    user_id: int = Depends(
-        auth.get_current_user
-    ),
-):
-
-    db.delete_session(
-        user_id,
-        session_id,
-    )
-
-    return {
-        "message": (
-            f"Deleted session {session_id}"
-        )
-    }
-
-
-@app.get(
-    "/api/sessions/{session_id}/messages"
-)
-async def get_session_messages(
-    session_id: int,
-    user_id: int = Depends(
-        auth.get_current_user
-    ),
-):
-
-    return {
-        "messages": db.list_messages(
-            user_id,
-            session_id,
-        )
-    }
-
-
-# ============================================================
 # QUIZ
 # ============================================================
-
-
-class QuizAnswer(BaseModel):
-    question_id: int
-    selected_index: Optional[int]
-
-
-class QuizSubmitRequest(BaseModel):
-    answers: list[QuizAnswer]
-
 
 @app.post(
     "/api/sessions/{session_id}/quiz"
 )
-async def generate_quiz_route(
+async def create_quiz(
     session_id: int,
     num_questions: int = Form(5),
     user_id: int = Depends(
@@ -776,316 +1316,86 @@ async def generate_quiz_route(
     ),
 ):
 
-    num_questions = max(
-        1,
-        min(
-            int(num_questions),
-            20,
-        ),
-    )
+    if num_questions < 1:
+        num_questions = 1
 
-    # ========================================================
-    # CURRENT CHAT ONLY
-    # ========================================================
+    if num_questions > 20:
+        num_questions = 20
 
-    messages = db.list_messages(
-        user_id,
-        session_id,
-    )
+    try:
 
-    if not messages:
-
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "This conversation has no messages "
-                "to quiz on yet."
-            ),
+        session = db.get_session(
+            user_id,
+            session_id,
         )
 
-    chat_transcript = "\n\n".join(
-        (
-            "Student"
-            if message["role"] == "user"
-            else "ScholarAI"
-        )
-        + ": "
-        + message["content"]
-        for message in messages
-    )
+        if not session:
 
-    # ========================================================
-    # GET CURRENT STUDENT'S PDF CONTENT
-    # ========================================================
-
-    user_questions = [
-        message["content"]
-        for message in messages
-        if message["role"] == "user"
-    ]
-
-    pdf_docs = []
-
-    if user_questions:
-
-        combined_query = "\n".join(
-            user_questions
-        )
-
-        try:
-
-            pdf_docs = get_user_context_docs(
-                combined_query,
-                user_id=user_id,
-                wide=True,
+            raise HTTPException(
+                status_code=404,
+                detail="Session not found.",
             )
 
-        except Exception as e:
+        messages = db.get_messages(
+            user_id,
+            session_id,
+        )
 
-            print(
-                "WARNING: quiz PDF retrieval failed:",
-                e,
+        if not messages:
+
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "This session does not "
+                    "contain any messages yet."
+                ),
             )
 
-    pdf_chunks = []
+        transcript_parts = []
 
-    seen_chunks = set()
+        for message in messages:
 
-    for doc in pdf_docs:
+            role = message.get(
+                "role",
+                "unknown",
+            )
 
-        text = doc.page_content.strip()
+            content = message.get(
+                "content",
+                "",
+            )
 
-        if not text:
-            continue
+            transcript_parts.append(
+                f"{role.upper()}: {content}"
+            )
 
-        fingerprint = hash(text)
-
-        if fingerprint in seen_chunks:
-            continue
-
-        seen_chunks.add(
-            fingerprint
+        transcript = "\n\n".join(
+            transcript_parts
         )
 
-        source = doc.metadata.get(
-            "source",
-            "Uploaded PDF",
+        questions = generate_quiz(
+            transcript,
+            num_questions=num_questions,
         )
 
-        pdf_chunks.append(
-            f"[PDF: {source}]\n{text}"
+        return {
+            "questions": questions,
+            "count": len(questions),
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as e:
+
+        print(
+            traceback.format_exc()
         )
-
-    pdf_context = "\n\n".join(
-        pdf_chunks
-    )
-
-    if not pdf_context:
-
-        pdf_context = (
-            "No relevant PDF material was found "
-            "for this current conversation."
-        )
-
-    # ========================================================
-    # WRONG QUESTIONS FROM PREVIOUS QUIZZES
-    # ========================================================
-
-    weak_questions = db.get_weak_quiz_questions(
-        user_id,
-        session_id,
-        limit=num_questions,
-    )
-
-    # ========================================================
-    # ALL PREVIOUSLY ASKED QUESTIONS
-    # ========================================================
-
-    with db.get_conn() as conn:
-
-        rows = conn.execute(
-            """
-            SELECT DISTINCT
-                qq.question
-            FROM quiz_questions qq
-            JOIN quiz_attempts qa
-                ON qa.id = qq.attempt_id
-            WHERE qa.user_id = ?
-            AND qa.session_id = ?
-            ORDER BY qq.id DESC
-            LIMIT 200
-            """,
-            (
-                user_id,
-                session_id,
-            ),
-        ).fetchall()
-
-        previous_questions = [
-            row["question"]
-            for row in rows
-        ]
-
-    # ========================================================
-    # NEW QUESTIONS NEEDED
-    # ========================================================
-
-    new_count = max(
-        0,
-        num_questions
-        - len(weak_questions),
-    )
-
-    generated_new = []
-
-    if new_count > 0:
-
-        generated_new = generate_quiz(
-            chat_context=chat_transcript,
-            pdf_context=pdf_context,
-            num_questions=new_count,
-            excluded_questions=previous_questions,
-        )
-
-    # ========================================================
-    # FINAL QUIZ
-    # ========================================================
-
-    final_questions = []
-
-    for question in weak_questions:
-
-        if len(final_questions) >= num_questions:
-            break
-
-        final_questions.append(
-            question
-        )
-
-    for question in generated_new:
-
-        if len(final_questions) >= num_questions:
-            break
-
-        if any(
-            existing["question"]
-            == question["question"]
-            for existing in final_questions
-        ):
-
-            continue
-
-        final_questions.append(
-            question
-        )
-
-    if not final_questions:
 
         raise HTTPException(
             status_code=500,
             detail=(
-                "Couldn't generate useful quiz questions "
-                "from this current chat and its uploaded material."
+                f"Failed to generate quiz: "
+                f"{str(e)}"
             ),
         )
-
-    # ========================================================
-    # SAVE ATTEMPT
-    # ========================================================
-
-    attempt_id = db.create_quiz_attempt(
-        user_id,
-        session_id,
-    )
-
-    response_questions = []
-
-    for question in final_questions:
-
-        question_id = db.add_quiz_question(
-            attempt_id=attempt_id,
-            fingerprint=question["fingerprint"],
-            question=question["question"],
-            options_json=json.dumps(
-                question["options"]
-            ),
-            correct_index=question["correct_index"],
-            explanation=question["explanation"],
-        )
-
-        response_questions.append(
-            {
-                "id": question_id,
-                "question": question["question"],
-                "options": question["options"],
-                "correct_index": question["correct_index"],
-                "explanation": question["explanation"],
-            }
-        )
-
-    return {
-        "attempt_id": attempt_id,
-        "questions": response_questions,
-        "count": len(response_questions),
-    }
-
-
-# ============================================================
-# QUIZ SUBMISSION
-# ============================================================
-
-
-@app.post(
-    "/api/quiz/{attempt_id}/submit"
-)
-async def submit_quiz_route(
-    attempt_id: int,
-    data: QuizSubmitRequest,
-    user_id: int = Depends(
-        auth.get_current_user
-    ),
-):
-
-    answers = [
-        {
-            "question_id":
-                answer.question_id,
-
-            "selected_index":
-                answer.selected_index,
-        }
-        for answer in data.answers
-    ]
-
-    try:
-
-        result = db.submit_quiz_answers(
-            user_id=user_id,
-            attempt_id=attempt_id,
-            answers=answers,
-        )
-
-    except ValueError as e:
-
-        raise HTTPException(
-            status_code=404,
-            detail=str(e),
-        )
-
-    return result
-
-
-# ============================================================
-# START SERVER
-# ============================================================
-
-
-if __name__ == "__main__":
-
-    import uvicorn
-
-    uvicorn.run(
-        app,
-        host="0.0.0.0",
-        port=8000,
-    )
