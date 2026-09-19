@@ -7,6 +7,7 @@ import base64
 import hashlib
 import time
 import random
+import threading
 
 from dotenv import load_dotenv
 
@@ -46,10 +47,8 @@ MISTRAL_API_KEY = os.getenv(
 )
 
 if not MISTRAL_API_KEY:
-
     raise RuntimeError(
-        "MISTRAL_API_KEY is missing. "
-        "Add MISTRAL_API_KEY to your environment variables."
+        "MISTRAL_API_KEY is missing."
     )
 
 
@@ -58,10 +57,8 @@ PINECONE_API_KEY = os.getenv(
 )
 
 if not PINECONE_API_KEY:
-
     raise RuntimeError(
-        "PINECONE_API_KEY is missing. "
-        "Add PINECONE_API_KEY to your environment variables."
+        "PINECONE_API_KEY is missing."
     )
 
 
@@ -70,35 +67,65 @@ PINECONE_INDEX_NAME = os.getenv(
 )
 
 if not PINECONE_INDEX_NAME:
-
     raise RuntimeError(
-        "PINECONE_INDEX_NAME is missing. "
-        "Add PINECONE_INDEX_NAME to your environment variables."
+        "PINECONE_INDEX_NAME is missing."
     )
 
 
 # ============================================================
-# RATE LIMIT CONFIGURATION
+# MISTRAL RATE LIMIT PROTECTION
 # ============================================================
 
-MAX_RETRIES = 2
+# Keep every Mistral request in this process separated.
+# This covers embeddings, chat, quiz generation and vision.
 
-BASE_RETRY_DELAY = 2
+MISTRAL_MIN_REQUEST_INTERVAL = 1.15
+
+_mistral_rate_lock = threading.Lock()
+
+_last_mistral_request = 0.0
+
+
+def wait_for_mistral_slot():
+
+    global _last_mistral_request
+
+    with _mistral_rate_lock:
+
+        now = time.monotonic()
+
+        remaining = (
+            MISTRAL_MIN_REQUEST_INTERVAL
+            - (
+                now
+                - _last_mistral_request
+            )
+        )
+
+        if remaining > 0:
+
+            time.sleep(
+                remaining
+            )
+
+        _last_mistral_request = (
+            time.monotonic()
+        )
 
 
 def is_rate_limit_error(
     error: Exception,
 ) -> bool:
 
-    error_text = str(
+    text = str(
         error
     ).lower()
 
     return (
-        "429" in error_text
-        or "rate limit" in error_text
-        or "rate_limited" in error_text
-        or "too many requests" in error_text
+        "429" in text
+        or "rate limit" in text
+        or "rate_limited" in text
+        or "too many requests" in text
     )
 
 
@@ -107,8 +134,7 @@ def retry_delay(
 ) -> float:
 
     return (
-        BASE_RETRY_DELAY
-        * (2 ** attempt)
+        (2 ** attempt)
         + random.uniform(
             0,
             1,
@@ -116,12 +142,54 @@ def retry_delay(
     )
 
 
+def invoke_llm_with_retry(
+    model,
+    model_input,
+    max_retries: int = 2,
+):
+
+    for attempt in range(
+        max_retries + 1
+    ):
+
+        try:
+
+            wait_for_mistral_slot()
+
+            return model.invoke(
+                model_input
+            )
+
+        except Exception as error:
+
+            if not is_rate_limit_error(
+                error
+            ):
+                raise
+
+            if attempt >= max_retries:
+                raise
+
+            delay = retry_delay(
+                attempt
+            )
+
+            print(
+                "Mistral rate limit detected. "
+                f"Retrying in {delay:.2f}s..."
+            )
+
+            time.sleep(
+                delay
+            )
+
+
 # ============================================================
 # VECTOR STORE
 # ============================================================
 
 embedding_model = MistralAIEmbeddings(
-    api_key=MISTRAL_API_KEY,
+    api_key=MISTRAL_API_KEY
 )
 
 
@@ -187,7 +255,6 @@ vision_llm = ChatMistralAI(
 SENTINEL = (
     "Could not find the answer in the provided material"
 )
-
 
 SUPPLEMENT_TAG = "[[SUPPLEMENTED]]"
 
@@ -388,73 +455,6 @@ def encode_image(
 
 
 # ============================================================
-# LLM SAFE INVOCATION
-# ============================================================
-
-def invoke_llm_with_retry(
-    model,
-    model_input,
-    max_retries: int = MAX_RETRIES,
-):
-
-    for attempt in range(
-        max_retries + 1
-    ):
-
-        try:
-
-            return model.invoke(
-                model_input
-            )
-
-        except Exception as error:
-
-            if not is_rate_limit_error(
-                error
-            ):
-
-                raise
-
-            if (
-                attempt
-                >= max_retries
-            ):
-
-                raise
-
-            delay = retry_delay(
-                attempt
-            )
-
-            print(
-                "Mistral rate limit "
-                f"detected. Retrying in "
-                f"{delay:.2f}s..."
-            )
-
-            time.sleep(
-                delay
-            )
-
-
-def invoke_llm_async_with_retry(
-    model,
-    model_input,
-    max_retries: int = MAX_RETRIES,
-):
-
-    """
-    Async helper kept available for server-side
-    integrations that may import it later.
-
-    The current FastAPI server has its own async
-    retry/semaphore layer.
-    """
-
-    return model_input
-
-
-# ============================================================
 # USER-SCOPED VECTOR RETRIEVAL
 # ============================================================
 
@@ -466,11 +466,6 @@ def get_user_context_docs(
 
     """
     Retrieve ONLY the authenticated user's vectors.
-
-    Every uploaded PDF chunk receives user_id metadata.
-
-    Mistral embedding calls are protected by limited
-    exponential-backoff retries.
     """
 
     user_filter = {
@@ -479,13 +474,14 @@ def get_user_context_docs(
         }
     }
 
-    max_retrieval_retries = 2
-
-    for attempt in range(
-        max_retrieval_retries + 1
-    ):
+    for attempt in range(3):
 
         try:
+
+            # similarity_search triggers the Mistral
+            # embedding API.
+
+            wait_for_mistral_slot()
 
             return vectorStore.similarity_search(
                 query,
@@ -504,24 +500,13 @@ def get_user_context_docs(
             ):
 
                 print(
-                    "User-filtered Pinecone "
-                    "search failed:",
+                    "User-filtered Pinecone search failed:",
                     error,
                 )
 
                 return []
 
-            if (
-                attempt
-                >= max_retrieval_retries
-            ):
-
-                print(
-                    "Mistral embedding rate "
-                    "limit remained active "
-                    "after retries."
-                )
-
+            if attempt >= 2:
                 raise
 
             delay = retry_delay(
@@ -529,10 +514,8 @@ def get_user_context_docs(
             )
 
             print(
-                "Mistral embedding rate "
-                f"limit detected. Retrying "
-                f"retrieval in "
-                f"{delay:.2f}s..."
+                "Mistral embedding rate limit detected. "
+                f"Retrying in {delay:.2f}s..."
             )
 
             time.sleep(
@@ -958,12 +941,29 @@ def answer_query(
     user_id: int = 0,
 ) -> str:
 
-    """
-    Standalone RAG function.
+    normalized = re.sub(
+        r"\s+",
+        " ",
+        query.strip().lower(),
+    )
 
-    The authenticated server should pass the actual user_id.
-    The default 0 is retained only for CLI compatibility.
-    """
+    greetings = {
+        "hi",
+        "hello",
+        "hey",
+        "hii",
+        "good morning",
+        "good afternoon",
+        "good evening",
+    }
+
+    # No API call for simple greetings.
+    if normalized in greetings:
+
+        return (
+            "Hello! I’m ScholarAI. "
+            "Ask me anything about your study material."
+        )
 
     wide = (
         is_repeated_question_query(
@@ -982,27 +982,9 @@ def answer_query(
         for doc in docs
     )
 
-    new_prompt = prompt.invoke(
-        {
-            "context": context,
-            "question": query,
-        }
-    )
-
-    response = (
-        invoke_llm_with_retry(
-            llm,
-            new_prompt,
-        )
-    )
-
-    answer = response.content
-
-    if (
-        SENTINEL.lower()
-        in answer.lower()
-        or not context.strip()
-    ):
+    # No context means we do not make a RAG call
+    # followed by a second fallback call.
+    if not context.strip():
 
         fb_prompt = (
             fallback_prompt.invoke(
@@ -1023,6 +1005,29 @@ def answer_query(
             f"{fb_response.content}"
             "\n\n(material needed )"
         )
+
+    new_prompt = prompt.invoke(
+        {
+            "context": context,
+            "question": query,
+        }
+    )
+
+    response = (
+        invoke_llm_with_retry(
+            llm,
+            new_prompt,
+        )
+    )
+
+    answer = response.content
+
+    if (
+        SENTINEL.lower()
+        in answer.lower()
+    ):
+
+        return answer
 
     was_supplemented = (
         SUPPLEMENT_TAG
@@ -1147,6 +1152,8 @@ if __name__ == "__main__":
                         pages
                     )
                 )
+
+                wait_for_mistral_slot()
 
                 vectorStore.add_documents(
                     split_docs
@@ -1293,6 +1300,8 @@ if __name__ == "__main__":
                         [doc]
                     )
                 )
+
+                wait_for_mistral_slot()
 
                 vectorStore.add_documents(
                     split_docs

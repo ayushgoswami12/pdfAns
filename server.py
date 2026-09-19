@@ -10,7 +10,9 @@ from fastapi import (
 )
 
 from fastapi.responses import StreamingResponse
+
 from fastapi.middleware.cors import CORSMiddleware
+
 from pydantic import BaseModel
 
 from typing import Optional
@@ -28,6 +30,7 @@ import json
 # ============================================================
 
 try:
+
     from main import (
         llm,
         prompt,
@@ -40,20 +43,35 @@ try:
         get_user_context_docs,
         register_source,
         generate_quiz,
+        wait_for_mistral_slot,
+        is_rate_limit_error,
     )
 
-    print("Successfully imported RAG components from main.py")
+    print(
+        "Successfully imported RAG components from main.py"
+    )
 
 except Exception as e:
-    print("ERROR importing RAG components:", str(e))
-    print(traceback.format_exc())
+
+    print(
+        "ERROR importing RAG components:",
+        str(e),
+    )
+
+    print(
+        traceback.format_exc()
+    )
+
     sys.exit(1)
 
 
 import database as db
 import auth
 
-from langchain_community.document_loaders import PyPDFLoader
+
+from langchain_community.document_loaders import (
+    PyPDFLoader,
+)
 
 from langchain_text_splitters import (
     RecursiveCharacterTextSplitter,
@@ -68,40 +86,28 @@ app = FastAPI()
 
 
 # ============================================================
-# MISTRAL RATE LIMIT PROTECTION
+# MISTRAL CHAT RATE LIMIT PROTECTION
 # ============================================================
 
 llm_semaphore = asyncio.Semaphore(1)
-
-
-def is_rate_limit_error(exc: Exception) -> bool:
-    error_text = str(exc).lower()
-
-    return (
-        "429" in error_text
-        or "rate limit exceeded" in error_text
-        or "rate_limited" in error_text
-        or "too many requests" in error_text
-    )
 
 
 async def call_llm_with_retry(
     prompt_input,
     max_retries: int = 2,
 ):
-    """
-    Call Mistral serially and retry temporary 429 errors.
 
-    Only one Mistral chat request is allowed at a time in this
-    backend process. This prevents multiple users/requests from
-    unnecessarily consuming the same organization rate limit.
-    """
-
-    for attempt in range(max_retries + 1):
+    for attempt in range(
+        max_retries + 1
+    ):
 
         try:
 
             async with llm_semaphore:
+
+                await asyncio.to_thread(
+                    wait_for_mistral_slot
+                )
 
                 return await llm.ainvoke(
                     prompt_input
@@ -109,7 +115,9 @@ async def call_llm_with_retry(
 
         except Exception as exc:
 
-            if not is_rate_limit_error(exc):
+            if not is_rate_limit_error(
+                exc
+            ):
                 raise
 
             if attempt >= max_retries:
@@ -117,18 +125,20 @@ async def call_llm_with_retry(
                 raise HTTPException(
                     status_code=503,
                     detail=(
-                        "ScholarAI's AI service is temporarily "
-                        "rate-limited. Please wait a little and "
-                        "try again."
+                        "ScholarAI is temporarily "
+                        "rate-limited by the Mistral "
+                        "Free tier. Please wait a "
+                        "moment and try again."
                     ),
                 )
 
-            wait_seconds = 2 ** attempt
+            wait_seconds = (
+                2 ** attempt
+            )
 
             print(
-                "Mistral returned 429. "
-                f"Retrying in {wait_seconds}s "
-                f"(attempt {attempt + 1}/{max_retries})..."
+                "Mistral chat rate limited (429). "
+                f"Retrying in {wait_seconds}s..."
             )
 
             await asyncio.sleep(
@@ -140,22 +150,20 @@ async def stream_llm_with_retry(
     prompt_input,
     max_retries: int = 2,
 ):
-    """
-    Stream a response from Mistral.
 
-    If a 429 happens before any content is received, retry.
-
-    If content has already started streaming, never retry because
-    retrying would duplicate part of the answer.
-    """
-
-    for attempt in range(max_retries + 1):
+    for attempt in range(
+        max_retries + 1
+    ):
 
         yielded_any = False
 
         try:
 
             async with llm_semaphore:
+
+                await asyncio.to_thread(
+                    wait_for_mistral_slot
+                )
 
                 async for chunk in llm.astream(
                     prompt_input
@@ -169,8 +177,9 @@ async def stream_llm_with_retry(
 
         except Exception as exc:
 
-            if not is_rate_limit_error(exc):
-
+            if not is_rate_limit_error(
+                exc
+            ):
                 raise
 
             if yielded_any:
@@ -178,8 +187,9 @@ async def stream_llm_with_retry(
                 raise HTTPException(
                     status_code=503,
                     detail=(
-                        "The AI service was rate-limited "
-                        "while generating the answer."
+                        "The Mistral service was "
+                        "rate-limited while generating "
+                        "the answer."
                     ),
                 )
 
@@ -188,18 +198,20 @@ async def stream_llm_with_retry(
                 raise HTTPException(
                     status_code=503,
                     detail=(
-                        "ScholarAI's AI service is temporarily "
-                        "rate-limited. Please wait a little and "
-                        "try again."
+                        "ScholarAI is temporarily "
+                        "rate-limited by the Mistral "
+                        "Free tier. Please wait a "
+                        "moment and try again."
                     ),
                 )
 
-            wait_seconds = 2 ** attempt
+            wait_seconds = (
+                2 ** attempt
+            )
 
             print(
-                "Mistral stream returned 429. "
-                f"Retrying in {wait_seconds}s "
-                f"(attempt {attempt + 1}/{max_retries})..."
+                "Mistral chat stream rate limited (429). "
+                f"Retrying in {wait_seconds}s..."
             )
 
             await asyncio.sleep(
@@ -212,29 +224,46 @@ async def stream_llm_with_retry(
 # ============================================================
 
 class SignupRequest(BaseModel):
+
     email: str
     password: str
     name: str
 
 
 class LoginRequest(BaseModel):
+
     email: str
     password: str
 
 
-@app.post("/auth/signup")
+@app.post(
+    "/auth/signup"
+)
 async def signup(
     data: SignupRequest,
 ):
-    email = data.email.strip().lower()
+
+    email = (
+        data.email
+        .strip()
+        .lower()
+    )
+
     password = data.password
-    name = data.name.strip()
+
+    name = (
+        data.name
+        .strip()
+    )
 
     if len(password) < 6:
 
         raise HTTPException(
             status_code=400,
-            detail="Password must be at least 6 characters.",
+            detail=(
+                "Password must be at least "
+                "6 characters."
+            ),
         )
 
     if not name:
@@ -246,8 +275,10 @@ async def signup(
 
     try:
 
-        existing_user = db.get_user_by_email(
-            email
+        existing_user = (
+            db.get_user_by_email(
+                email
+            )
         )
 
     except Exception as e:
@@ -263,20 +294,28 @@ async def signup(
 
         raise HTTPException(
             status_code=500,
-            detail="Database error while checking account.",
+            detail=(
+                "Database error while "
+                "checking account."
+            ),
         )
 
     if existing_user:
 
         raise HTTPException(
             status_code=400,
-            detail="An account with this email already exists.",
+            detail=(
+                "An account with this email "
+                "already exists."
+            ),
         )
 
     try:
 
-        password_hash = auth.hash_password(
-            password
+        password_hash = (
+            auth.hash_password(
+                password
+            )
         )
 
         user_id = db.create_user(
@@ -285,8 +324,10 @@ async def signup(
             name=name,
         )
 
-        token = auth.create_access_token(
-            user_id
+        token = (
+            auth.create_access_token(
+                user_id
+            )
         )
 
         return {
@@ -300,6 +341,7 @@ async def signup(
         }
 
     except HTTPException:
+
         raise
 
     except Exception as e:
@@ -315,21 +357,33 @@ async def signup(
 
         raise HTTPException(
             status_code=500,
-            detail="Unable to create account.",
+            detail=(
+                "Unable to create account."
+            ),
         )
 
 
-@app.post("/auth/login")
+@app.post(
+    "/auth/login"
+)
 async def login(
     data: LoginRequest,
 ):
-    email = data.email.strip().lower()
+
+    email = (
+        data.email
+        .strip()
+        .lower()
+    )
+
     password = data.password
 
     try:
 
-        user = db.get_user_by_email(
-            email
+        user = (
+            db.get_user_by_email(
+                email
+            )
         )
 
     except Exception as e:
@@ -345,21 +399,27 @@ async def login(
 
         raise HTTPException(
             status_code=500,
-            detail="Database error during login.",
+            detail=(
+                "Database error during login."
+            ),
         )
 
     if not user:
 
         raise HTTPException(
             status_code=401,
-            detail="Invalid email or password.",
+            detail=(
+                "Invalid email or password."
+            ),
         )
 
     try:
 
-        password_valid = auth.verify_password(
-            password,
-            user["password_hash"],
+        password_valid = (
+            auth.verify_password(
+                password,
+                user["password_hash"],
+            )
         )
 
     except Exception as e:
@@ -375,20 +435,26 @@ async def login(
 
         raise HTTPException(
             status_code=500,
-            detail="Unable to verify password.",
+            detail=(
+                "Unable to verify password."
+            ),
         )
 
     if not password_valid:
 
         raise HTTPException(
             status_code=401,
-            detail="Invalid email or password.",
+            detail=(
+                "Invalid email or password."
+            ),
         )
 
     try:
 
-        token = auth.create_access_token(
-            user["id"]
+        token = (
+            auth.create_access_token(
+                user["id"]
+            )
         )
 
     except Exception as e:
@@ -404,7 +470,9 @@ async def login(
 
         raise HTTPException(
             status_code=500,
-            detail="Unable to create login session.",
+            detail=(
+                "Unable to create login session."
+            ),
         )
 
     return {
@@ -418,16 +486,21 @@ async def login(
     }
 
 
-@app.get("/auth/me")
+@app.get(
+    "/auth/me"
+)
 async def me(
     user_id: int = Depends(
         auth.get_current_user
     ),
 ):
+
     try:
 
-        user = db.get_user_by_id(
-            user_id
+        user = (
+            db.get_user_by_id(
+                user_id
+            )
         )
 
     except Exception as e:
@@ -443,14 +516,19 @@ async def me(
 
         raise HTTPException(
             status_code=500,
-            detail="Database error while loading user.",
+            detail=(
+                "Database error while "
+                "loading user."
+            ),
         )
 
     if not user:
 
         raise HTTPException(
             status_code=401,
-            detail="User no longer exists.",
+            detail=(
+                "User no longer exists."
+            ),
         )
 
     return {
@@ -464,7 +542,9 @@ async def me(
 # DATABASE STARTUP
 # ============================================================
 
-@app.on_event("startup")
+@app.on_event(
+    "startup"
+)
 async def on_startup():
 
     try:
@@ -490,12 +570,18 @@ async def on_startup():
         raise
 
 
+# ============================================================
+# ROOT
+# ============================================================
+
 @app.get("/")
 async def root():
 
     return {
         "status": "ok",
-        "message": "ScholarAI backend is running",
+        "message": (
+            "ScholarAI backend is running"
+        ),
     }
 
 
@@ -531,47 +617,11 @@ app.add_middleware(
 # CHAT
 # ============================================================
 
-def clean_llm_content(content) -> str:
-
-    if content is None:
-        return ""
-
-    if isinstance(content, str):
-        return content
-
-    if isinstance(content, list):
-
-        parts = []
-
-        for item in content:
-
-            if isinstance(item, str):
-
-                parts.append(item)
-
-            elif isinstance(item, dict):
-
-                text_value = item.get(
-                    "text"
-                )
-
-                if text_value:
-                    parts.append(
-                        str(text_value)
-                    )
-
-        return "".join(parts)
-
-    return str(content)
-
-
 async def response_generator(
     query: str,
     session_id: Optional[int],
     user_id: int,
 ):
-
-    query = query.strip()
 
     print(
         f"Received query: {query} "
@@ -582,26 +632,62 @@ async def response_generator(
 
     try:
 
+        query = query.strip()
+
         if not query:
 
-            error_msg = (
+            yield (
                 "Please enter a question."
             )
-
-            yield error_msg
 
             return
 
         # ====================================================
-        # RETRIEVE USER DOCUMENTS
+        # GREETINGS
         # ====================================================
 
-        docs = get_user_context_docs(
-            query,
-            user_id=user_id,
-            wide=is_repeated_question_query(
-                query
-            ),
+        normalized = (
+            " ".join(
+                query.lower().split()
+            )
+        )
+
+        if normalized in {
+            "hi",
+            "hello",
+            "hey",
+            "hii",
+            "good morning",
+            "good afternoon",
+            "good evening",
+        }:
+
+            answer = (
+                "Hello! I’m ScholarAI. "
+                "Ask me anything about your "
+                "study material."
+            )
+
+            full_answer = answer
+
+            yield answer
+
+            return
+
+        # ====================================================
+        # RETRIEVAL
+        # ====================================================
+
+        docs = (
+            get_user_context_docs(
+                query,
+                user_id=user_id,
+                wide=(
+                    is_repeated_question_query(
+                        query
+                    )
+                ),
+            )
         )
 
         context = "\n\n".join(
@@ -610,56 +696,47 @@ async def response_generator(
         )
 
         # ====================================================
-        # FIRST AI RESPONSE
+        # NO PDF CONTEXT
         # ====================================================
 
-        new_prompt = prompt.invoke(
-            {
-                "context": context,
-                "question": query,
-            }
-        )
-
-        first_pass = await call_llm_with_retry(
-            new_prompt
-        )
-
-        answer_text = clean_llm_content(
-            first_pass.content
-        )
-
-        went_out_of_material = (
-            SENTINEL.lower()
-            in answer_text.lower()
-            or not context.strip()
-        )
-
-        # ====================================================
-        # FALLBACK GENERAL KNOWLEDGE RESPONSE
-        # ====================================================
-
-        if went_out_of_material:
+        if not context.strip():
 
             fallback_input = (
                 fallback_prompt.invoke(
                     {
-                        "question": query,
+                        "question":
+                            query,
                     }
                 )
             )
 
-            async for fb_chunk in stream_llm_with_retry(
-                fallback_input
+            async for fb_chunk in (
+                stream_llm_with_retry(
+                    fallback_input
+                )
             ):
 
-                chunk_text = clean_llm_content(
-                    fb_chunk.content
+                chunk_text = getattr(
+                    fb_chunk,
+                    "content",
+                    "",
                 )
+
+                if not isinstance(
+                    chunk_text,
+                    str,
+                ):
+
+                    chunk_text = str(
+                        chunk_text
+                    )
 
                 if not chunk_text:
                     continue
 
-                full_answer += chunk_text
+                full_answer += (
+                    chunk_text
+                )
 
                 yield chunk_text
 
@@ -676,53 +753,104 @@ async def response_generator(
             yield suffix
 
         # ====================================================
-        # SOURCE-BASED RESPONSE
+        # PDF CONTEXT
         # ====================================================
 
         else:
 
-            was_supplemented = (
-                SUPPLEMENT_TAG
-                in answer_text
+            new_prompt = (
+                prompt.invoke(
+                    {
+                        "context":
+                            context,
+
+                        "question":
+                            query,
+                    }
+                )
+            )
+
+            first_pass = (
+                await call_llm_with_retry(
+                    new_prompt
+                )
             )
 
             answer_text = (
-                answer_text
-                .replace(
-                    SUPPLEMENT_TAG,
-                    "",
-                )
-                .strip()
+                first_pass.content
             )
 
-            for i in range(
-                0,
-                len(answer_text),
-                20,
+            if not isinstance(
+                answer_text,
+                str,
             ):
 
-                piece = answer_text[
-                    i:i + 20
-                ]
-
-                full_answer += piece
-
-                yield piece
-
-                await asyncio.sleep(
-                    0.01
+                answer_text = str(
+                    answer_text
                 )
 
-            if was_supplemented:
+            if (
+                SENTINEL.lower()
+                in answer_text.lower()
+            ):
 
-                suffix = (
-                    "\n\n"
-                    "(expanded beyond your source material)"
+                full_answer = (
+                    answer_text.strip()
                 )
 
-                full_answer += suffix
+                yield full_answer
 
-                yield suffix
+            else:
+
+                was_supplemented = (
+                    SUPPLEMENT_TAG
+                    in answer_text
+                )
+
+                answer_text = (
+                    answer_text
+                    .replace(
+                        SUPPLEMENT_TAG,
+                        "",
+                    )
+                    .strip()
+                )
+
+                for i in range(
+                    0,
+                    len(answer_text),
+                    20,
+                ):
+
+                    piece = (
+                        answer_text[
+                            i:i + 20
+                        ]
+                    )
+
+                    full_answer += (
+                        piece
+                    )
+
+                    yield piece
+
+                    await asyncio.sleep(
+                        0.01
+                    )
+
+                if was_supplemented:
+
+                    suffix = (
+                        "\n\n"
+                        "(expanded beyond "
+                        "your source material)"
+                    )
+
+                    full_answer += (
+                        suffix
+                    )
+
+                    yield suffix
 
     except HTTPException as e:
 
@@ -730,7 +858,9 @@ async def response_generator(
             f"⚠️ {e.detail}"
         )
 
-        full_answer = error_msg
+        full_answer = (
+            error_msg
+        )
 
         yield error_msg
 
@@ -741,6 +871,18 @@ async def response_generator(
 
     except Exception as e:
 
+        error_msg = (
+            "⚠️ ScholarAI could not "
+            "generate a response right now. "
+            "Please try again."
+        )
+
+        full_answer = (
+            error_msg
+        )
+
+        yield error_msg
+
         print(
             "CHAT ERROR:",
             str(e),
@@ -749,15 +891,6 @@ async def response_generator(
         print(
             traceback.format_exc()
         )
-
-        error_msg = (
-            "⚠️ ScholarAI could not generate "
-            "a response right now. Please try again."
-        )
-
-        full_answer = error_msg
-
-        yield error_msg
 
     finally:
 
@@ -784,16 +917,15 @@ async def response_generator(
             except Exception as e:
 
                 print(
-                    "WARNING: failed to persist chat history:",
-                    str(e),
-                )
-
-                print(
-                    traceback.format_exc()
+                    "WARNING: failed to persist "
+                    "chat history:",
+                    e,
                 )
 
 
-@app.post("/api/chat")
+@app.post(
+    "/api/chat"
+)
 async def chat(
     query: str = Form(...),
 
@@ -813,12 +945,19 @@ async def chat(
             user_id,
         ),
 
-        media_type="text/plain; charset=utf-8",
+        media_type=(
+            "text/plain; charset=utf-8"
+        ),
 
         headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
+            "Cache-Control":
+                "no-cache",
+
+            "Connection":
+                "keep-alive",
+
+            "X-Accel-Buffering":
+                "no",
         },
     )
 
@@ -827,7 +966,9 @@ async def chat(
 # UPLOAD
 # ============================================================
 
-@app.post("/api/upload")
+@app.post(
+    "/api/upload"
+)
 async def upload_pdf(
     file: UploadFile = File(...),
 
@@ -846,22 +987,30 @@ async def upload_pdf(
 
         raise HTTPException(
             status_code=400,
-            detail="Only PDF files are allowed",
+            detail=(
+                "Only PDF files are allowed"
+            ),
         )
 
     tmp_file_path = None
 
     try:
 
-        content = await file.read()
+        content = (
+            await file.read()
+        )
 
-        size_bytes = len(content)
+        size_bytes = len(
+            content
+        )
 
         if size_bytes == 0:
 
             raise HTTPException(
                 status_code=400,
-                detail="The uploaded PDF is empty.",
+                detail=(
+                    "The uploaded PDF is empty."
+                ),
             )
 
         with tempfile.NamedTemporaryFile(
@@ -881,11 +1030,14 @@ async def upload_pdf(
             tmp_file_path
         )
 
-        documents = loader.load()
+        documents = (
+            loader.load()
+        )
 
         extracted_text = "".join(
             document.page_content
-            for document in documents
+            for document
+            in documents
         ).strip()
 
         if (
@@ -896,8 +1048,8 @@ async def upload_pdf(
             raise HTTPException(
                 status_code=422,
                 detail=(
-                    "Could not extract any text "
-                    "from this PDF."
+                    "Could not extract any "
+                    "text from this PDF."
                 ),
             )
 
@@ -940,12 +1092,19 @@ async def upload_pdf(
                 ),
             )
 
+        # add_documents triggers Mistral embeddings.
+        await asyncio.to_thread(
+            wait_for_mistral_slot
+        )
+
         vectorStore.add_documents(
             chunks
         )
 
-        label = register_source(
-            basename
+        label = (
+            register_source(
+                basename
+            )
         )
 
         db.add_source(
@@ -958,7 +1117,8 @@ async def upload_pdf(
 
         return {
             "message": (
-                f"Successfully processed {basename}."
+                f"Successfully processed "
+                f"{basename}."
             ),
             "label": label,
             "filename": basename,
@@ -967,6 +1127,7 @@ async def upload_pdf(
         }
 
     except HTTPException:
+
         raise
 
     except Exception as e:
@@ -1011,7 +1172,9 @@ async def upload_pdf(
 # SOURCES
 # ============================================================
 
-@app.get("/api/sources")
+@app.get(
+    "/api/sources"
+)
 async def get_sources(
     user_id: int = Depends(
         auth.get_current_user
@@ -1020,12 +1183,11 @@ async def get_sources(
 
     try:
 
-        sources = db.list_sources(
-            user_id
-        )
-
         return {
-            "sources": sources
+            "sources":
+                db.list_sources(
+                    user_id
+                )
         }
 
     except Exception as e:
@@ -1041,7 +1203,9 @@ async def get_sources(
 
         raise HTTPException(
             status_code=500,
-            detail="Failed to load sources.",
+            detail=(
+                "Failed to load sources."
+            ),
         )
 
 
@@ -1063,12 +1227,14 @@ async def delete_source_route(
                 "$and": [
                     {
                         "user_id": {
-                            "$eq": user_id
+                            "$eq":
+                                user_id
                         }
                     },
                     {
                         "source_lower": {
-                            "$eq": filename.lower()
+                            "$eq":
+                                filename.lower()
                         }
                     },
                 ]
@@ -1079,7 +1245,7 @@ async def delete_source_route(
 
         print(
             "WARNING: Pinecone delete failed:",
-            str(e),
+            e,
         )
 
     try:
@@ -1092,7 +1258,7 @@ async def delete_source_route(
     except Exception as e:
 
         print(
-            "ERROR deleting source from database:",
+            "ERROR deleting source:",
             str(e),
         )
 
@@ -1102,11 +1268,14 @@ async def delete_source_route(
 
         raise HTTPException(
             status_code=500,
-            detail="Failed to delete source.",
+            detail=(
+                "Failed to delete source."
+            ),
         )
 
     return {
-        "message": f"Deleted {filename}"
+        "message":
+            f"Deleted {filename}"
     }
 
 
@@ -1114,7 +1283,9 @@ async def delete_source_route(
 # SESSIONS
 # ============================================================
 
-@app.get("/api/sessions")
+@app.get(
+    "/api/sessions"
+)
 async def get_sessions(
     user_id: int = Depends(
         auth.get_current_user
@@ -1123,12 +1294,11 @@ async def get_sessions(
 
     try:
 
-        sessions = db.list_sessions(
-            user_id
-        )
-
         return {
-            "sessions": sessions
+            "sessions":
+                db.list_sessions(
+                    user_id
+                )
         }
 
     except Exception as e:
@@ -1144,11 +1314,15 @@ async def get_sessions(
 
         raise HTTPException(
             status_code=500,
-            detail="Failed to load sessions.",
+            detail=(
+                "Failed to load sessions."
+            ),
         )
 
 
-@app.post("/api/sessions")
+@app.post(
+    "/api/sessions"
+)
 async def create_session_route(
     title: str = Form(
         "New Chat"
@@ -1167,17 +1341,21 @@ async def create_session_route(
         ).strip()
 
         if not title:
-
             title = "New Chat"
 
-        session_id = db.create_session(
-            user_id,
-            title,
+        session_id = (
+            db.create_session(
+                user_id,
+                title,
+            )
         )
 
         return {
-            "id": session_id,
-            "title": title,
+            "id":
+                session_id,
+
+            "title":
+                title,
         }
 
     except Exception as e:
@@ -1194,7 +1372,8 @@ async def create_session_route(
         raise HTTPException(
             status_code=500,
             detail=(
-                f"Failed to create session: {str(e)}"
+                "Failed to create session: "
+                f"{str(e)}"
             ),
         )
 
@@ -1230,13 +1409,14 @@ async def delete_session_route(
 
         raise HTTPException(
             status_code=500,
-            detail="Failed to delete session.",
+            detail=(
+                "Failed to delete session."
+            ),
         )
 
     return {
-        "message": (
+        "message":
             f"Deleted session {session_id}"
-        )
     }
 
 
@@ -1253,13 +1433,12 @@ async def get_session_messages(
 
     try:
 
-        messages = db.list_messages(
-            user_id,
-            session_id,
-        )
-
         return {
-            "messages": messages
+            "messages":
+                db.list_messages(
+                    user_id,
+                    session_id,
+                )
         }
 
     except Exception as e:
@@ -1275,7 +1454,9 @@ async def get_session_messages(
 
         raise HTTPException(
             status_code=500,
-            detail="Failed to load messages.",
+            detail=(
+                "Failed to load messages."
+            ),
         )
 
 
@@ -1284,11 +1465,14 @@ async def get_session_messages(
 # ============================================================
 
 class QuizAnswer(BaseModel):
+
     question_id: int
+
     selected_index: Optional[int]
 
 
 class QuizSubmitRequest(BaseModel):
+
     answers: list[QuizAnswer]
 
 
@@ -1316,7 +1500,7 @@ async def generate_quiz_route(
     )
 
     # ========================================================
-    # CURRENT CHAT ONLY
+    # CURRENT CHAT
     # ========================================================
 
     try:
@@ -1339,7 +1523,9 @@ async def generate_quiz_route(
 
         raise HTTPException(
             status_code=500,
-            detail="Failed to load conversation.",
+            detail=(
+                "Failed to load conversation."
+            ),
         )
 
     if not messages:
@@ -1352,15 +1538,19 @@ async def generate_quiz_route(
             ),
         )
 
-    chat_transcript = "\n\n".join(
-        (
-            "Student"
-            if message["role"] == "user"
-            else "ScholarAI"
+    chat_transcript = (
+        "\n\n".join(
+            (
+                "Student"
+                if message["role"]
+                == "user"
+                else "ScholarAI"
+            )
+            + ": "
+            + message["content"]
+            for message
+            in messages
         )
-        + ": "
-        + message["content"]
-        for message in messages
     )
 
     # ========================================================
@@ -1369,31 +1559,37 @@ async def generate_quiz_route(
 
     user_questions = [
         message["content"]
-        for message in messages
-        if message["role"] == "user"
+        for message
+        in messages
+        if message["role"]
+        == "user"
     ]
 
     pdf_docs = []
 
     if user_questions:
 
-        combined_query = "\n".join(
-            user_questions
+        combined_query = (
+            "\n".join(
+                user_questions
+            )
         )
 
         try:
 
-            pdf_docs = get_user_context_docs(
-                combined_query,
-                user_id=user_id,
-                wide=True,
+            pdf_docs = (
+                get_user_context_docs(
+                    combined_query,
+                    user_id=user_id,
+                    wide=True,
+                )
             )
 
         except Exception as e:
 
             print(
                 "WARNING: quiz PDF retrieval failed:",
-                str(e),
+                e,
             )
 
             print(
@@ -1406,16 +1602,16 @@ async def generate_quiz_route(
 
     for doc in pdf_docs:
 
-        text_value = (
+        text = (
             doc.page_content
-            or ""
-        ).strip()
+            .strip()
+        )
 
-        if not text_value:
+        if not text:
             continue
 
         fingerprint = hash(
-            text_value
+            text
         )
 
         if fingerprint in seen_chunks:
@@ -1425,17 +1621,21 @@ async def generate_quiz_route(
             fingerprint
         )
 
-        source = doc.metadata.get(
-            "source",
-            "Uploaded PDF",
+        source = (
+            doc.metadata.get(
+                "source",
+                "Uploaded PDF",
+            )
         )
 
         pdf_chunks.append(
-            f"[PDF: {source}]\n{text_value}"
+            f"[PDF: {source}]\n{text}"
         )
 
-    pdf_context = "\n\n".join(
-        pdf_chunks
+    pdf_context = (
+        "\n\n".join(
+            pdf_chunks
+        )
     )
 
     if not pdf_context:
@@ -1446,7 +1646,7 @@ async def generate_quiz_route(
         )
 
     # ========================================================
-    # WRONG QUESTIONS FROM PREVIOUS QUIZZES
+    # WRONG QUESTIONS
     # ========================================================
 
     try:
@@ -1463,13 +1663,13 @@ async def generate_quiz_route(
 
         print(
             "WARNING: failed to load weak quiz questions:",
-            str(e),
+            e,
         )
 
         weak_questions = []
 
     # ========================================================
-    # PREVIOUSLY ASKED QUESTIONS
+    # PREVIOUS QUESTIONS
     # ========================================================
 
     try:
@@ -1502,8 +1702,9 @@ async def generate_quiz_route(
     except Exception as e:
 
         print(
-            "WARNING: failed to load previous quiz questions:",
-            str(e),
+            "WARNING: failed to load "
+            "previous quiz questions:",
+            e,
         )
 
         previous_questions = []
@@ -1515,7 +1716,9 @@ async def generate_quiz_route(
     new_count = max(
         0,
         num_questions
-        - len(weak_questions),
+        - len(
+            weak_questions
+        ),
     )
 
     generated_new = []
@@ -1524,11 +1727,20 @@ async def generate_quiz_route(
 
         try:
 
-            generated_new = generate_quiz(
-                chat_context=chat_transcript,
-                pdf_context=pdf_context,
-                num_questions=new_count,
-                excluded_questions=previous_questions,
+            generated_new = (
+                generate_quiz(
+                    chat_context=
+                        chat_transcript,
+
+                    pdf_context=
+                        pdf_context,
+
+                    num_questions=
+                        new_count,
+
+                    excluded_questions=
+                        previous_questions,
+                )
             )
 
         except Exception as e:
@@ -1560,7 +1772,10 @@ async def generate_quiz_route(
 
     for question in weak_questions:
 
-        if len(final_questions) >= num_questions:
+        if (
+            len(final_questions)
+            >= num_questions
+        ):
             break
 
         final_questions.append(
@@ -1569,13 +1784,17 @@ async def generate_quiz_route(
 
     for question in generated_new:
 
-        if len(final_questions) >= num_questions:
+        if (
+            len(final_questions)
+            >= num_questions
+        ):
             break
 
         if any(
             existing["question"]
             == question["question"]
-            for existing in final_questions
+            for existing
+            in final_questions
         ):
             continue
 
@@ -1599,58 +1818,89 @@ async def generate_quiz_route(
 
     try:
 
-        attempt_id = db.create_quiz_attempt(
-            user_id,
-            session_id,
+        attempt_id = (
+            db.create_quiz_attempt(
+                user_id,
+                session_id,
+            )
         )
 
         response_questions = []
 
         for question in final_questions:
 
-            question_id = db.add_quiz_question(
-                attempt_id=attempt_id,
-                fingerprint=question[
-                    "fingerprint"
-                ],
-                question=question[
-                    "question"
-                ],
-                options_json=json.dumps(
-                    question["options"]
-                ),
-                correct_index=question[
-                    "correct_index"
-                ],
-                explanation=question[
-                    "explanation"
-                ],
+            question_id = (
+                db.add_quiz_question(
+                    attempt_id=
+                        attempt_id,
+
+                    fingerprint=
+                        question[
+                            "fingerprint"
+                        ],
+
+                    question=
+                        question[
+                            "question"
+                        ],
+
+                    options_json=
+                        json.dumps(
+                            question[
+                                "options"
+                            ]
+                        ),
+
+                    correct_index=
+                        question[
+                            "correct_index"
+                        ],
+
+                    explanation=
+                        question[
+                            "explanation"
+                        ],
+                )
             )
 
             response_questions.append(
                 {
-                    "id": question_id,
-                    "question": question[
-                        "question"
-                    ],
-                    "options": question[
-                        "options"
-                    ],
-                    "correct_index": question[
-                        "correct_index"
-                    ],
-                    "explanation": question[
-                        "explanation"
-                    ],
+                    "id":
+                        question_id,
+
+                    "question":
+                        question[
+                            "question"
+                        ],
+
+                    "options":
+                        question[
+                            "options"
+                        ],
+
+                    "correct_index":
+                        question[
+                            "correct_index"
+                        ],
+
+                    "explanation":
+                        question[
+                            "explanation"
+                        ],
                 }
             )
 
         return {
-            "attempt_id": attempt_id,
-            "questions": response_questions,
-            "count": len(
-                response_questions
-            ),
+            "attempt_id":
+                attempt_id,
+
+            "questions":
+                response_questions,
+
+            "count":
+                len(
+                    response_questions
+                ),
         }
 
     except Exception as e:
@@ -1666,7 +1916,9 @@ async def generate_quiz_route(
 
         raise HTTPException(
             status_code=500,
-            detail="Failed to save generated quiz.",
+            detail=(
+                "Failed to save generated quiz."
+            ),
         )
 
 
@@ -1696,15 +1948,18 @@ async def submit_quiz_route(
                 answer.selected_index,
         }
 
-        for answer in data.answers
+        for answer
+        in data.answers
     ]
 
     try:
 
-        result = db.submit_quiz_answers(
-            user_id=user_id,
-            attempt_id=attempt_id,
-            answers=answers,
+        result = (
+            db.submit_quiz_answers(
+                user_id=user_id,
+                attempt_id=attempt_id,
+                answers=answers,
+            )
         )
 
     except ValueError as e:
@@ -1727,7 +1982,9 @@ async def submit_quiz_route(
 
         raise HTTPException(
             status_code=500,
-            detail="Failed to submit quiz.",
+            detail=(
+                "Failed to submit quiz."
+            ),
         )
 
     return result
