@@ -48,7 +48,7 @@ export default function HomePage() {
             href="/chat"
             className="px-5 py-2 rounded-full bg-white text-black text-[13.5px] font-bold hover:bg-gray-100 hover:scale-[1.02] active:scale-95 transition-all duration-200 whitespace-nowrap"
           >
-            Free Trial
+            Sign up
           </Link>
         </div>
       </nav>
