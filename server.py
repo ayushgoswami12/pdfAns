@@ -10,9 +10,7 @@ from fastapi import (
 )
 
 from fastapi.responses import StreamingResponse
-
 from fastapi.middleware.cors import CORSMiddleware
-
 from pydantic import BaseModel
 
 from typing import Optional
@@ -44,26 +42,16 @@ try:
         generate_quiz,
     )
 
-    print(
-        "Successfully imported RAG components from main.py"
-    )
+    print("Successfully imported RAG components from main.py")
 
 except Exception as e:
-    print(
-        "ERROR importing RAG components:",
-        str(e),
-    )
-
-    print(
-        traceback.format_exc()
-    )
-
+    print("ERROR importing RAG components:", str(e))
+    print(traceback.format_exc())
     sys.exit(1)
 
 
 import database as db
 import auth
-
 
 from langchain_community.document_loaders import PyPDFLoader
 
@@ -72,28 +60,41 @@ from langchain_text_splitters import (
 )
 
 
+# ============================================================
+# APP
+# ============================================================
+
 app = FastAPI()
 
 
 # ============================================================
-# MISTRAL CHAT RATE LIMIT PROTECTION
+# MISTRAL RATE LIMIT PROTECTION
 # ============================================================
 
 llm_semaphore = asyncio.Semaphore(1)
 
 
+def is_rate_limit_error(exc: Exception) -> bool:
+    error_text = str(exc).lower()
+
+    return (
+        "429" in error_text
+        or "rate limit exceeded" in error_text
+        or "rate_limited" in error_text
+        or "too many requests" in error_text
+    )
+
+
 async def call_llm_with_retry(
     prompt_input,
-    max_retries: int = 3,
+    max_retries: int = 2,
 ):
     """
-    Call the chat LLM with serialized access and 429 backoff.
+    Call Mistral serially and retry temporary 429 errors.
 
-    Attempts:
-        Initial request + up to 3 retries.
-
-    Wait times:
-        2s -> 4s -> 8s
+    Only one Mistral chat request is allowed at a time in this
+    backend process. This prevents multiple users/requests from
+    unnecessarily consuming the same organization rate limit.
     """
 
     for attempt in range(max_retries + 1):
@@ -108,18 +109,24 @@ async def call_llm_with_retry(
 
         except Exception as exc:
 
-            error_text = str(exc)
-
-            if (
-                "429" not in error_text
-                or attempt >= max_retries
-            ):
+            if not is_rate_limit_error(exc):
                 raise
+
+            if attempt >= max_retries:
+
+                raise HTTPException(
+                    status_code=503,
+                    detail=(
+                        "ScholarAI's AI service is temporarily "
+                        "rate-limited. Please wait a little and "
+                        "try again."
+                    ),
+                )
 
             wait_seconds = 2 ** attempt
 
             print(
-                "Mistral chat rate limited (429). "
+                "Mistral returned 429. "
                 f"Retrying in {wait_seconds}s "
                 f"(attempt {attempt + 1}/{max_retries})..."
             )
@@ -131,13 +138,15 @@ async def call_llm_with_retry(
 
 async def stream_llm_with_retry(
     prompt_input,
-    max_retries: int = 3,
+    max_retries: int = 2,
 ):
     """
-    Stream from the chat LLM while serializing access.
+    Stream a response from Mistral.
 
-    Retry only when a 429 happens before any content
-    has been emitted.
+    If a 429 happens before any content is received, retry.
+
+    If content has already started streaming, never retry because
+    retrying would duplicate part of the answer.
     """
 
     for attempt in range(max_retries + 1):
@@ -160,19 +169,35 @@ async def stream_llm_with_retry(
 
         except Exception as exc:
 
-            error_text = str(exc)
+            if not is_rate_limit_error(exc):
 
-            if (
-                "429" not in error_text
-                or yielded_any
-                or attempt >= max_retries
-            ):
                 raise
+
+            if yielded_any:
+
+                raise HTTPException(
+                    status_code=503,
+                    detail=(
+                        "The AI service was rate-limited "
+                        "while generating the answer."
+                    ),
+                )
+
+            if attempt >= max_retries:
+
+                raise HTTPException(
+                    status_code=503,
+                    detail=(
+                        "ScholarAI's AI service is temporarily "
+                        "rate-limited. Please wait a little and "
+                        "try again."
+                    ),
+                )
 
             wait_seconds = 2 ** attempt
 
             print(
-                "Mistral chat stream rate limited (429). "
+                "Mistral stream returned 429. "
                 f"Retrying in {wait_seconds}s "
                 f"(attempt {attempt + 1}/{max_retries})..."
             )
@@ -206,46 +231,92 @@ async def signup(
     name = data.name.strip()
 
     if len(password) < 6:
+
         raise HTTPException(
             status_code=400,
             detail="Password must be at least 6 characters.",
         )
 
     if not name:
+
         raise HTTPException(
             status_code=400,
             detail="Name is required.",
         )
 
-    if db.get_user_by_email(email):
+    try:
+
+        existing_user = db.get_user_by_email(
+            email
+        )
+
+    except Exception as e:
+
+        print(
+            "ERROR checking existing user:",
+            str(e),
+        )
+
+        print(
+            traceback.format_exc()
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail="Database error while checking account.",
+        )
+
+    if existing_user:
+
         raise HTTPException(
             status_code=400,
             detail="An account with this email already exists.",
         )
 
-    password_hash = auth.hash_password(
-        password
-    )
+    try:
 
-    user_id = db.create_user(
-        email=email,
-        password_hash=password_hash,
-        name=name,
-    )
+        password_hash = auth.hash_password(
+            password
+        )
 
-    token = auth.create_access_token(
-        user_id
-    )
+        user_id = db.create_user(
+            email=email,
+            password_hash=password_hash,
+            name=name,
+        )
 
-    return {
-        "access_token": token,
-        "token_type": "bearer",
-        "user": {
-            "id": user_id,
-            "email": email,
-            "name": name,
-        },
-    }
+        token = auth.create_access_token(
+            user_id
+        )
+
+        return {
+            "access_token": token,
+            "token_type": "bearer",
+            "user": {
+                "id": user_id,
+                "email": email,
+                "name": name,
+            },
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as e:
+
+        print(
+            "ERROR during signup:",
+            str(e),
+        )
+
+        print(
+            traceback.format_exc()
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail="Unable to create account.",
+        )
 
 
 @app.post("/auth/login")
@@ -255,32 +326,93 @@ async def login(
     email = data.email.strip().lower()
     password = data.password
 
-    user = db.get_user_by_email(
-        email
-    )
+    try:
 
-    if (
-        not user
-        or not auth.verify_password(
-            password,
-            user["password_hash"],
+        user = db.get_user_by_email(
+            email
         )
-    ):
+
+    except Exception as e:
+
+        print(
+            "ERROR loading user during login:",
+            str(e),
+        )
+
+        print(
+            traceback.format_exc()
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail="Database error during login.",
+        )
+
+    if not user:
+
         raise HTTPException(
             status_code=401,
             detail="Invalid email or password.",
         )
 
-    token = auth.create_access_token(
-        user["id"]
-    )
+    try:
+
+        password_valid = auth.verify_password(
+            password,
+            user["password_hash"],
+        )
+
+    except Exception as e:
+
+        print(
+            "ERROR verifying password:",
+            str(e),
+        )
+
+        print(
+            traceback.format_exc()
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail="Unable to verify password.",
+        )
+
+    if not password_valid:
+
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid email or password.",
+        )
+
+    try:
+
+        token = auth.create_access_token(
+            user["id"]
+        )
+
+    except Exception as e:
+
+        print(
+            "ERROR creating JWT:",
+            str(e),
+        )
+
+        print(
+            traceback.format_exc()
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail="Unable to create login session.",
+        )
 
     return {
         "access_token": token,
         "token_type": "bearer",
         "user": {
             "id": user["id"],
-            "email": email,
+            "email": user["email"],
             "name": user.get("name"),
         },
     }
@@ -292,11 +424,30 @@ async def me(
         auth.get_current_user
     ),
 ):
-    user = db.get_user_by_id(
-        user_id
-    )
+    try:
+
+        user = db.get_user_by_id(
+            user_id
+        )
+
+    except Exception as e:
+
+        print(
+            "ERROR loading current user:",
+            str(e),
+        )
+
+        print(
+            traceback.format_exc()
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail="Database error while loading user.",
+        )
 
     if not user:
+
         raise HTTPException(
             status_code=401,
             detail="User no longer exists.",
@@ -316,12 +467,27 @@ async def me(
 @app.on_event("startup")
 async def on_startup():
 
-    db.init_db()
+    try:
 
-    print(
-        "Database ready at",
-        db.DB_PATH,
-    )
+        db.init_db()
+
+        print(
+            "Database ready at",
+            db.DB_PATH,
+        )
+
+    except Exception as e:
+
+        print(
+            "ERROR initializing database:",
+            str(e),
+        )
+
+        print(
+            traceback.format_exc()
+        )
+
+        raise
 
 
 @app.get("/")
@@ -365,11 +531,47 @@ app.add_middleware(
 # CHAT
 # ============================================================
 
+def clean_llm_content(content) -> str:
+
+    if content is None:
+        return ""
+
+    if isinstance(content, str):
+        return content
+
+    if isinstance(content, list):
+
+        parts = []
+
+        for item in content:
+
+            if isinstance(item, str):
+
+                parts.append(item)
+
+            elif isinstance(item, dict):
+
+                text_value = item.get(
+                    "text"
+                )
+
+                if text_value:
+                    parts.append(
+                        str(text_value)
+                    )
+
+        return "".join(parts)
+
+    return str(content)
+
+
 async def response_generator(
     query: str,
     session_id: Optional[int],
     user_id: int,
 ):
+
+    query = query.strip()
 
     print(
         f"Received query: {query} "
@@ -379,6 +581,20 @@ async def response_generator(
     full_answer = ""
 
     try:
+
+        if not query:
+
+            error_msg = (
+                "Please enter a question."
+            )
+
+            yield error_msg
+
+            return
+
+        # ====================================================
+        # RETRIEVE USER DOCUMENTS
+        # ====================================================
 
         docs = get_user_context_docs(
             query,
@@ -393,6 +609,10 @@ async def response_generator(
             for doc in docs
         )
 
+        # ====================================================
+        # FIRST AI RESPONSE
+        # ====================================================
+
         new_prompt = prompt.invoke(
             {
                 "context": context,
@@ -400,15 +620,13 @@ async def response_generator(
             }
         )
 
-        # ====================================================
-        # FIRST CHAT COMPLETION WITH 429 RETRY
-        # ====================================================
-
         first_pass = await call_llm_with_retry(
             new_prompt
         )
 
-        answer_text = first_pass.content
+        answer_text = clean_llm_content(
+            first_pass.content
+        )
 
         went_out_of_material = (
             SENTINEL.lower()
@@ -417,31 +635,40 @@ async def response_generator(
         )
 
         # ====================================================
-        # FALLBACK ANSWER
+        # FALLBACK GENERAL KNOWLEDGE RESPONSE
         # ====================================================
 
         if went_out_of_material:
 
-            async for fb_chunk in stream_llm_with_retry(
+            fallback_input = (
                 fallback_prompt.invoke(
                     {
                         "question": query,
                     }
                 )
+            )
+
+            async for fb_chunk in stream_llm_with_retry(
+                fallback_input
             ):
 
-                full_answer += (
+                chunk_text = clean_llm_content(
                     fb_chunk.content
                 )
 
-                yield fb_chunk.content
+                if not chunk_text:
+                    continue
+
+                full_answer += chunk_text
+
+                yield chunk_text
 
                 await asyncio.sleep(
                     0.01
                 )
 
             suffix = (
-                "\n\n(outside the material)"
+                "\n\n(material needed )"
             )
 
             full_answer += suffix
@@ -449,7 +676,7 @@ async def response_generator(
             yield suffix
 
         # ====================================================
-        # ANSWER FROM USER MATERIAL
+        # SOURCE-BASED RESPONSE
         # ====================================================
 
         else:
@@ -497,19 +724,40 @@ async def response_generator(
 
                 yield suffix
 
-    except Exception as e:
+    except HTTPException as e:
 
         error_msg = (
-            f"⚠️ Error: {str(e)}"
+            f"⚠️ {e.detail}"
         )
 
-        full_answer += error_msg
+        full_answer = error_msg
 
         yield error_msg
 
         print(
+            "CHAT HTTP ERROR:",
+            e.detail,
+        )
+
+    except Exception as e:
+
+        print(
+            "CHAT ERROR:",
+            str(e),
+        )
+
+        print(
             traceback.format_exc()
         )
+
+        error_msg = (
+            "⚠️ ScholarAI could not generate "
+            "a response right now. Please try again."
+        )
+
+        full_answer = error_msg
+
+        yield error_msg
 
     finally:
 
@@ -537,14 +785,22 @@ async def response_generator(
 
                 print(
                     "WARNING: failed to persist chat history:",
-                    e,
+                    str(e),
+                )
+
+                print(
+                    traceback.format_exc()
                 )
 
 
 @app.post("/api/chat")
 async def chat(
     query: str = Form(...),
-    session_id: Optional[int] = Form(None),
+
+    session_id: Optional[int] = Form(
+        None
+    ),
+
     user_id: int = Depends(
         auth.get_current_user
     ),
@@ -556,7 +812,14 @@ async def chat(
             session_id,
             user_id,
         ),
-        media_type="text/event-stream",
+
+        media_type="text/plain; charset=utf-8",
+
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
     )
 
 
@@ -567,12 +830,17 @@ async def chat(
 @app.post("/api/upload")
 async def upload_pdf(
     file: UploadFile = File(...),
+
     user_id: int = Depends(
         auth.get_current_user
     ),
 ):
 
-    if not file.filename.lower().endswith(
+    filename = (
+        file.filename or ""
+    ).strip()
+
+    if not filename.lower().endswith(
         ".pdf"
     ):
 
@@ -581,11 +849,20 @@ async def upload_pdf(
             detail="Only PDF files are allowed",
         )
 
+    tmp_file_path = None
+
     try:
 
         content = await file.read()
 
         size_bytes = len(content)
+
+        if size_bytes == 0:
+
+            raise HTTPException(
+                status_code=400,
+                detail="The uploaded PDF is empty.",
+            )
 
         with tempfile.NamedTemporaryFile(
             delete=False,
@@ -606,17 +883,15 @@ async def upload_pdf(
 
         documents = loader.load()
 
+        extracted_text = "".join(
+            document.page_content
+            for document in documents
+        ).strip()
+
         if (
             not documents
-            or not "".join(
-                document.page_content
-                for document in documents
-            ).strip()
+            or not extracted_text
         ):
-
-            os.remove(
-                tmp_file_path
-            )
 
             raise HTTPException(
                 status_code=422,
@@ -626,7 +901,7 @@ async def upload_pdf(
                 ),
             )
 
-        basename = file.filename
+        basename = filename
 
         for document in documents:
 
@@ -642,21 +917,31 @@ async def upload_pdf(
                 "user_id"
             ] = user_id
 
-        splitter = RecursiveCharacterTextSplitter(
-            chunk_size=1500,
-            chunk_overlap=250,
+        splitter = (
+            RecursiveCharacterTextSplitter(
+                chunk_size=1500,
+                chunk_overlap=250,
+            )
         )
 
-        chunks = splitter.split_documents(
-            documents
+        chunks = (
+            splitter.split_documents(
+                documents
+            )
         )
+
+        if not chunks:
+
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "No usable text chunks "
+                    "were created from this PDF."
+                ),
+            )
 
         vectorStore.add_documents(
             chunks
-        )
-
-        os.remove(
-            tmp_file_path
         )
 
         label = register_source(
@@ -682,10 +967,14 @@ async def upload_pdf(
         }
 
     except HTTPException:
-
         raise
 
     except Exception as e:
+
+        print(
+            "UPLOAD ERROR:",
+            str(e),
+        )
 
         print(
             traceback.format_exc()
@@ -693,8 +982,29 @@ async def upload_pdf(
 
         raise HTTPException(
             status_code=500,
-            detail=str(e),
+            detail=(
+                "Failed to process the PDF."
+            ),
         )
+
+    finally:
+
+        if (
+            tmp_file_path
+            and os.path.exists(
+                tmp_file_path
+            )
+        ):
+
+            try:
+
+                os.remove(
+                    tmp_file_path
+                )
+
+            except Exception:
+
+                pass
 
 
 # ============================================================
@@ -708,11 +1018,31 @@ async def get_sources(
     ),
 ):
 
-    return {
-        "sources": db.list_sources(
+    try:
+
+        sources = db.list_sources(
             user_id
         )
-    }
+
+        return {
+            "sources": sources
+        }
+
+    except Exception as e:
+
+        print(
+            "ERROR loading sources:",
+            str(e),
+        )
+
+        print(
+            traceback.format_exc()
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to load sources.",
+        )
 
 
 @app.delete(
@@ -720,6 +1050,7 @@ async def get_sources(
 )
 async def delete_source_route(
     filename: str,
+
     user_id: int = Depends(
         auth.get_current_user
     ),
@@ -748,18 +1079,34 @@ async def delete_source_route(
 
         print(
             "WARNING: Pinecone delete failed:",
-            e,
+            str(e),
         )
 
-    db.delete_source(
-        user_id,
-        filename,
-    )
+    try:
+
+        db.delete_source(
+            user_id,
+            filename,
+        )
+
+    except Exception as e:
+
+        print(
+            "ERROR deleting source from database:",
+            str(e),
+        )
+
+        print(
+            traceback.format_exc()
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to delete source.",
+        )
 
     return {
-        "message": (
-            f"Deleted {filename}"
-        )
+        "message": f"Deleted {filename}"
     }
 
 
@@ -774,25 +1121,53 @@ async def get_sessions(
     ),
 ):
 
-    return {
-        "sessions": db.list_sessions(
+    try:
+
+        sessions = db.list_sessions(
             user_id
         )
-    }
+
+        return {
+            "sessions": sessions
+        }
+
+    except Exception as e:
+
+        print(
+            "ERROR loading sessions:",
+            str(e),
+        )
+
+        print(
+            traceback.format_exc()
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to load sessions.",
+        )
 
 
 @app.post("/api/sessions")
 async def create_session_route(
-    title: str = Form("New Chat"),
+    title: str = Form(
+        "New Chat"
+    ),
+
     user_id: int = Depends(
         auth.get_current_user
     ),
 ):
+
     try:
-        # Make sure the title is always a valid string.
-        title = (title or "New Chat").strip()
+
+        title = (
+            title
+            or "New Chat"
+        ).strip()
 
         if not title:
+
             title = "New Chat"
 
         session_id = db.create_session(
@@ -806,8 +1181,7 @@ async def create_session_route(
         }
 
     except Exception as e:
-        # Print the complete traceback to Render logs
-        # so we can see the actual SQLite error.
+
         print(
             "ERROR creating session:",
             str(e),
@@ -830,15 +1204,34 @@ async def create_session_route(
 )
 async def delete_session_route(
     session_id: int,
+
     user_id: int = Depends(
         auth.get_current_user
     ),
 ):
 
-    db.delete_session(
-        user_id,
-        session_id,
-    )
+    try:
+
+        db.delete_session(
+            user_id,
+            session_id,
+        )
+
+    except Exception as e:
+
+        print(
+            "ERROR deleting session:",
+            str(e),
+        )
+
+        print(
+            traceback.format_exc()
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to delete session.",
+        )
 
     return {
         "message": (
@@ -852,34 +1245,38 @@ async def delete_session_route(
 )
 async def get_session_messages(
     session_id: int,
+
     user_id: int = Depends(
         auth.get_current_user
     ),
 ):
 
-    return {
-        "messages": db.list_messages(
+    try:
+
+        messages = db.list_messages(
             user_id,
             session_id,
         )
-    }
 
+        return {
+            "messages": messages
+        }
 
-@app.post("/api/sessions")
-async def create_session_route_duplicate(
-    title: str = Form("New Chat"),
-    user_id: int = Depends(
-        auth.get_current_user
-    ),
-):
-    """
-    This route is intentionally not used.
-    The actual /api/sessions route is defined above.
-    """
-    raise HTTPException(
-        status_code=500,
-        detail="Duplicate session route.",
-    )
+    except Exception as e:
+
+        print(
+            "ERROR loading messages:",
+            str(e),
+        )
+
+        print(
+            traceback.format_exc()
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to load messages.",
+        )
 
 
 # ============================================================
@@ -900,7 +1297,11 @@ class QuizSubmitRequest(BaseModel):
 )
 async def generate_quiz_route(
     session_id: int,
-    num_questions: int = Form(5),
+
+    num_questions: int = Form(
+        5
+    ),
+
     user_id: int = Depends(
         auth.get_current_user
     ),
@@ -914,10 +1315,32 @@ async def generate_quiz_route(
         ),
     )
 
-    messages = db.list_messages(
-        user_id,
-        session_id,
-    )
+    # ========================================================
+    # CURRENT CHAT ONLY
+    # ========================================================
+
+    try:
+
+        messages = db.list_messages(
+            user_id,
+            session_id,
+        )
+
+    except Exception as e:
+
+        print(
+            "ERROR loading quiz messages:",
+            str(e),
+        )
+
+        print(
+            traceback.format_exc()
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to load conversation.",
+        )
 
     if not messages:
 
@@ -939,6 +1362,10 @@ async def generate_quiz_route(
         + message["content"]
         for message in messages
     )
+
+    # ========================================================
+    # CURRENT STUDENT PDF CONTENT
+    # ========================================================
 
     user_questions = [
         message["content"]
@@ -966,7 +1393,11 @@ async def generate_quiz_route(
 
             print(
                 "WARNING: quiz PDF retrieval failed:",
-                e,
+                str(e),
+            )
+
+            print(
+                traceback.format_exc()
             )
 
     pdf_chunks = []
@@ -975,13 +1406,16 @@ async def generate_quiz_route(
 
     for doc in pdf_docs:
 
-        text = doc.page_content.strip()
+        text_value = (
+            doc.page_content
+            or ""
+        ).strip()
 
-        if not text:
+        if not text_value:
             continue
 
         fingerprint = hash(
-            text
+            text_value
         )
 
         if fingerprint in seen_chunks:
@@ -997,7 +1431,7 @@ async def generate_quiz_route(
         )
 
         pdf_chunks.append(
-            f"[PDF: {source}]\n{text}"
+            f"[PDF: {source}]\n{text_value}"
         )
 
     pdf_context = "\n\n".join(
@@ -1011,36 +1445,72 @@ async def generate_quiz_route(
             "for this current conversation."
         )
 
-    weak_questions = db.get_weak_quiz_questions(
-        user_id,
-        session_id,
-        limit=num_questions,
-    )
+    # ========================================================
+    # WRONG QUESTIONS FROM PREVIOUS QUIZZES
+    # ========================================================
 
-    with db.get_conn() as conn:
+    try:
 
-        rows = conn.execute(
-            """
-            SELECT DISTINCT
-                qq.question
-            FROM quiz_questions qq
-            JOIN quiz_attempts qa
-                ON qa.id = qq.attempt_id
-            WHERE qa.user_id = ?
-            AND qa.session_id = ?
-            ORDER BY qq.id DESC
-            LIMIT 200
-            """,
-            (
+        weak_questions = (
+            db.get_weak_quiz_questions(
                 user_id,
                 session_id,
-            ),
-        ).fetchall()
+                limit=num_questions,
+            )
+        )
 
-        previous_questions = [
-            row["question"]
-            for row in rows
-        ]
+    except Exception as e:
+
+        print(
+            "WARNING: failed to load weak quiz questions:",
+            str(e),
+        )
+
+        weak_questions = []
+
+    # ========================================================
+    # PREVIOUSLY ASKED QUESTIONS
+    # ========================================================
+
+    try:
+
+        with db.get_conn() as conn:
+
+            rows = conn.execute(
+                """
+                SELECT DISTINCT
+                    qq.question
+                FROM quiz_questions qq
+                JOIN quiz_attempts qa
+                    ON qa.id = qq.attempt_id
+                WHERE qa.user_id = ?
+                AND qa.session_id = ?
+                ORDER BY qq.id DESC
+                LIMIT 200
+                """,
+                (
+                    user_id,
+                    session_id,
+                ),
+            ).fetchall()
+
+            previous_questions = [
+                row["question"]
+                for row in rows
+            ]
+
+    except Exception as e:
+
+        print(
+            "WARNING: failed to load previous quiz questions:",
+            str(e),
+        )
+
+        previous_questions = []
+
+    # ========================================================
+    # NEW QUESTIONS
+    # ========================================================
 
     new_count = max(
         0,
@@ -1052,21 +1522,45 @@ async def generate_quiz_route(
 
     if new_count > 0:
 
-        generated_new = generate_quiz(
-            chat_context=chat_transcript,
-            pdf_context=pdf_context,
-            num_questions=new_count,
-            excluded_questions=previous_questions,
-        )
+        try:
+
+            generated_new = generate_quiz(
+                chat_context=chat_transcript,
+                pdf_context=pdf_context,
+                num_questions=new_count,
+                excluded_questions=previous_questions,
+            )
+
+        except Exception as e:
+
+            print(
+                "QUIZ GENERATION ERROR:",
+                str(e),
+            )
+
+            print(
+                traceback.format_exc()
+            )
+
+            if not weak_questions:
+
+                raise HTTPException(
+                    status_code=503,
+                    detail=(
+                        "The AI service is temporarily "
+                        "unavailable for quiz generation."
+                    ),
+                )
+
+    # ========================================================
+    # FINAL QUIZ
+    # ========================================================
 
     final_questions = []
 
     for question in weak_questions:
 
-        if (
-            len(final_questions)
-            >= num_questions
-        ):
+        if len(final_questions) >= num_questions:
             break
 
         final_questions.append(
@@ -1075,10 +1569,7 @@ async def generate_quiz_route(
 
     for question in generated_new:
 
-        if (
-            len(final_questions)
-            >= num_questions
-        ):
+        if len(final_questions) >= num_questions:
             break
 
         if any(
@@ -1086,7 +1577,6 @@ async def generate_quiz_route(
             == question["question"]
             for existing in final_questions
         ):
-
             continue
 
         final_questions.append(
@@ -1096,66 +1586,88 @@ async def generate_quiz_route(
     if not final_questions:
 
         raise HTTPException(
-            status_code=500,
+            status_code=503,
             detail=(
                 "Couldn't generate useful quiz questions "
                 "from this current chat and its uploaded material."
             ),
         )
 
-    attempt_id = db.create_quiz_attempt(
-        user_id,
-        session_id,
-    )
+    # ========================================================
+    # SAVE ATTEMPT
+    # ========================================================
 
-    response_questions = []
+    try:
 
-    for question in final_questions:
-
-        question_id = db.add_quiz_question(
-            attempt_id=attempt_id,
-            fingerprint=question[
-                "fingerprint"
-            ],
-            question=question[
-                "question"
-            ],
-            options_json=json.dumps(
-                question["options"]
-            ),
-            correct_index=question[
-                "correct_index"
-            ],
-            explanation=question[
-                "explanation"
-            ],
+        attempt_id = db.create_quiz_attempt(
+            user_id,
+            session_id,
         )
 
-        response_questions.append(
-            {
-                "id": question_id,
-                "question": question[
+        response_questions = []
+
+        for question in final_questions:
+
+            question_id = db.add_quiz_question(
+                attempt_id=attempt_id,
+                fingerprint=question[
+                    "fingerprint"
+                ],
+                question=question[
                     "question"
                 ],
-                "options": question[
-                    "options"
-                ],
-                "correct_index": question[
+                options_json=json.dumps(
+                    question["options"]
+                ),
+                correct_index=question[
                     "correct_index"
                 ],
-                "explanation": question[
+                explanation=question[
                     "explanation"
                 ],
-            }
+            )
+
+            response_questions.append(
+                {
+                    "id": question_id,
+                    "question": question[
+                        "question"
+                    ],
+                    "options": question[
+                        "options"
+                    ],
+                    "correct_index": question[
+                        "correct_index"
+                    ],
+                    "explanation": question[
+                        "explanation"
+                    ],
+                }
+            )
+
+        return {
+            "attempt_id": attempt_id,
+            "questions": response_questions,
+            "count": len(
+                response_questions
+            ),
+        }
+
+    except Exception as e:
+
+        print(
+            "ERROR saving quiz:",
+            str(e),
         )
 
-    return {
-        "attempt_id": attempt_id,
-        "questions": response_questions,
-        "count": len(
-            response_questions
-        ),
-    }
+        print(
+            traceback.format_exc()
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to save generated quiz.",
+        )
 
 
 # ============================================================
@@ -1167,7 +1679,9 @@ async def generate_quiz_route(
 )
 async def submit_quiz_route(
     attempt_id: int,
+
     data: QuizSubmitRequest,
+
     user_id: int = Depends(
         auth.get_current_user
     ),
@@ -1181,6 +1695,7 @@ async def submit_quiz_route(
             "selected_index":
                 answer.selected_index,
         }
+
         for answer in data.answers
     ]
 
@@ -1197,6 +1712,22 @@ async def submit_quiz_route(
         raise HTTPException(
             status_code=404,
             detail=str(e),
+        )
+
+    except Exception as e:
+
+        print(
+            "ERROR submitting quiz:",
+            str(e),
+        )
+
+        print(
+            traceback.format_exc()
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to submit quiz.",
         )
 
     return result
