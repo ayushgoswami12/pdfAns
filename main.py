@@ -14,9 +14,7 @@ from dotenv import load_dotenv
 from langchain_groq import ChatGroq
 
 from langchain_core.prompts import ChatPromptTemplate
-
 from langchain_core.messages import HumanMessage
-
 from langchain_core.documents import Document
 
 from langchain_text_splitters import (
@@ -41,12 +39,6 @@ load_dotenv()
 # ============================================================
 # GLOBAL GROQ RATE LIMITER
 # ============================================================
-
-# Groq can enforce request/token rate limits.
-# Keep a small process-wide delay between Groq calls so
-# chat and vision calls do not burst together.
-#
-# Pinecone embeddings are handled separately.
 
 MIN_SECONDS_BETWEEN_GROQ_CALLS = 0.2
 
@@ -109,6 +101,10 @@ def invoke_llm_with_retry(
     model_input,
     max_retries: int = 2,
 ):
+    """
+    Invoke a Groq model with retry handling
+    for rate-limit errors.
+    """
 
     for attempt in range(
         max_retries + 1
@@ -148,15 +144,10 @@ def invoke_llm_with_retry(
 # VECTOR STORE
 # ============================================================
 
-# Mistral embeddings have been completely removed.
+# Pinecone's hosted multilingual-e5-large
+# is used for document and query embeddings.
 #
-# Pinecone's hosted multilingual-e5-large model is now used
-# for both:
-#
-# 1. PDF/document embeddings
-# 2. User query embeddings
-#
-# This means no MISTRAL_API_KEY is required anymore.
+# No MISTRAL_API_KEY is required.
 
 embedding_model = PineconeEmbeddings(
     model="multilingual-e5-large"
@@ -208,16 +199,24 @@ repeated_q_retriver = vectorStore.as_retriever(
 # GROQ MODELS
 # ============================================================
 
-# Main text/chat model.
+# Main text/chat/quiz model.
+#
+# Qwen 3.8 supports both reasoning and instruct modes.
+# We explicitly disable reasoning so that normal answers
+# and quiz JSON are returned directly in response.content.
+
 llm = ChatGroq(
-    model="openai/gpt-oss-20b",
+    model="qwen/qwen3.8-27b",
     temperature=0,
+    reasoning_effort="none",
+    reasoning_format="hidden",
 )
 
 
 # Vision/OCR model.
 #
-# Qwen 3.6 27B supports image input and OCR.
+# Kept as your existing model for OCR/image processing.
+
 vision_llm = ChatGroq(
     model="qwen/qwen3.6-27b",
     temperature=0,
@@ -247,6 +246,7 @@ Answer the student's question using the supplied document
 context as the primary source of truth.
 
 Rules:
+
 1. Use the supplied context first.
 2. If the context only partially answers the question, you may
    supplement with accurate general knowledge.
@@ -420,7 +420,6 @@ def get_user_context_docs(
     user_id: int,
     wide: bool = False,
 ):
-
     """
     Retrieve ONLY the authenticated user's vectors.
 
@@ -527,11 +526,29 @@ def _quiz_fingerprint(
     ).hexdigest()
 
 
+# ============================================================
+# QUIZ JSON CLEANER
+# ============================================================
+
 def _clean_quiz_json(
     raw: str,
 ) -> list[dict]:
+    """
+    Clean and validate the model's quiz JSON.
 
-    raw = raw.strip()
+    IMPORTANT:
+    Some models can occasionally return an empty content field.
+    Guard against that before calling json.loads().
+    """
+
+    # SAFETY NET:
+    # Never call json.loads() on None or an empty string.
+    raw = (raw or "").strip()
+
+    if not raw:
+        raise ValueError(
+            "Model returned an empty response."
+        )
 
     if raw.startswith("```"):
 
@@ -559,6 +576,24 @@ def _clean_quiz_json(
         raise ValueError(
             f"Model did not return valid JSON: {e}"
         )
+
+    # Some models wrap the quiz array in an object even when
+    # instructed to return a raw JSON array. Accept the common
+    # wrapper shapes and unwrap the list before validation.
+    if isinstance(parsed, dict):
+        for key in (
+            "questions",
+            "quiz",
+            "result",
+            "data",
+            "items",
+        ):
+            if (
+                key in parsed
+                and isinstance(parsed[key], list)
+            ):
+                parsed = parsed[key]
+                break
 
     if not isinstance(
         parsed,
@@ -658,6 +693,10 @@ def _clean_quiz_json(
     return result
 
 
+# ============================================================
+# QUIZ GENERATION
+# ============================================================
+
 def generate_quiz(
     chat_context: str,
     pdf_context: str,
@@ -688,10 +727,15 @@ def generate_quiz(
 
     attempts = 0
 
+    max_attempts = max(
+        5,
+        num_questions * 2,
+    )
+
     while (
         len(generated)
         < num_questions
-        and attempts < 5
+        and attempts < max_attempts
     ):
 
         attempts += 1
@@ -734,14 +778,66 @@ def generate_quiz(
             )
         )
 
-        response = invoke_llm_with_retry(
-            llm,
-            filled_prompt,
-        )
+        try:
 
-        candidates = _clean_quiz_json(
-            response.content
-        )
+            response = (
+                invoke_llm_with_retry(
+                    llm,
+                    filled_prompt,
+                )
+            )
+
+            # response.content is expected to contain
+            # the final answer because reasoning is disabled.
+            raw_content = getattr(
+                response,
+                "content",
+                "",
+            )
+
+            candidates = (
+                _clean_quiz_json(
+                    raw_content
+                )
+            )
+
+        except Exception as e:
+
+            print(
+                f"Quiz generation attempt "
+                f"{attempts} failed:",
+                e,
+            )
+
+            # Temporary debug output: show the actual model response
+            # when quiz parsing fails, so the JSON shape can be
+            # diagnosed from Render logs without guessing.
+            print(
+                "RAW MODEL OUTPUT WAS:",
+                repr(raw_content)[:500],
+            )
+
+            if is_rate_limit_error(e):
+
+                time.sleep(
+                    retry_delay(
+                        min(
+                            attempts,
+                            3,
+                        )
+                    )
+                )
+
+            continue
+
+        if not candidates:
+
+            print(
+                f"Quiz generation attempt "
+                f"{attempts} returned no valid questions."
+            )
+
+            continue
 
         for candidate in candidates:
 
@@ -761,9 +857,7 @@ def generate_quiz(
 
             if any(
                 fingerprint
-                == _quiz_fingerprint(
-                    item["question"]
-                )
+                == item["fingerprint"]
                 for item in generated
             ):
                 continue
@@ -822,16 +916,27 @@ def answer_query(
         }
     )
 
-    response = invoke_llm_with_retry(
-        llm,
-        new_prompt,
+    response = (
+        invoke_llm_with_retry(
+            llm,
+            new_prompt,
+        )
     )
 
-    answer = response.content
+    answer = getattr(
+        response,
+        "content",
+        "",
+    )
+
+    answer = (
+        answer or ""
+    ).strip()
 
     if (
         SENTINEL in answer
         or not context.strip()
+        or not answer
     ):
 
         fb_prompt = (
@@ -849,13 +954,20 @@ def answer_query(
             )
         )
 
+        fallback_answer = getattr(
+            fb_response,
+            "content",
+            "",
+        )
+
         return (
-            f"{fb_response.content}"
+            f"{fallback_answer}"
             "\n\n(material needed )"
         )
 
     was_supplemented = (
-        SUPPLEMENT_TAG in answer
+        SUPPLEMENT_TAG
+        in answer
     )
 
     answer = answer.replace(
@@ -898,6 +1010,10 @@ if __name__ == "__main__":
 
         if query == "0":
             break
+
+        # ====================================================
+        # PDF INGESTION
+        # ====================================================
 
         if (
             os.path.isfile(query)
@@ -984,6 +1100,10 @@ if __name__ == "__main__":
 
             continue
 
+        # ====================================================
+        # IMAGE / EXAM PAPER INGESTION
+        # ====================================================
+
         if (
             os.path.isfile(query)
             and query.lower().endswith(
@@ -1042,8 +1162,14 @@ if __name__ == "__main__":
                     )
                 )
 
+                extracted_text = getattr(
+                    vision_response,
+                    "content",
+                    "",
+                )
+
                 extracted_text = (
-                    vision_response.content
+                    extracted_text or ""
                 )
 
                 if len(
@@ -1098,6 +1224,10 @@ if __name__ == "__main__":
                 )
 
             continue
+
+        # ====================================================
+        # NORMAL QUESTION
+        # ====================================================
 
         answer = answer_query(
             query

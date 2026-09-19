@@ -1,5 +1,3 @@
-# FILE: database.py
-
 """
 SQLite database for ScholarAI.
 
@@ -843,6 +841,17 @@ def get_weak_quiz_questions(
     session_id: int,
     limit: int = 20,
 ) -> list[dict]:
+    """
+    Return quiz questions whose most recent answer was incorrect.
+
+    The previous query used MAX() inside a correlated subquery and
+    again inside HAVING. SQLite rejects that pattern with:
+
+        sqlite3.OperationalError: misuse of aggregate function MAX()
+
+    This version first finds the latest answer for each question
+    fingerprint, then joins that result back to the question.
+    """
     with get_conn() as conn:
         rows = conn.execute(
             """
@@ -853,33 +862,31 @@ def get_weak_quiz_questions(
                 qq.options_json,
                 qq.correct_index,
                 qq.explanation,
-                MAX(qa.id) AS latest_answer_id
+                latest.id AS latest_answer_id,
+                latest.answered_at AS latest_answered_at
             FROM quiz_questions qq
             JOIN quiz_attempts qa_attempt
                 ON qa_attempt.id = qq.attempt_id
-            JOIN quiz_answers qa
-                ON qa.question_id = qq.id
-            WHERE qa_attempt.user_id = ?
-            AND qa_attempt.session_id = ?
-            AND qa.id = (
-                SELECT MAX(qa2.id)
+            JOIN (
+                SELECT
+                    qq2.fingerprint,
+                    MAX(qa2.id) AS latest_answer_id
                 FROM quiz_answers qa2
                 JOIN quiz_questions qq2
                     ON qq2.id = qa2.question_id
                 JOIN quiz_attempts qa2_attempt
                     ON qa2_attempt.id = qq2.attempt_id
-                WHERE qq2.fingerprint = qq.fingerprint
-                AND qa2_attempt.user_id = ?
+                WHERE qa2_attempt.user_id = ?
                 AND qa2_attempt.session_id = ?
-            )
-            GROUP BY
-                qq.fingerprint
-            HAVING (
-                SELECT qa3.is_correct
-                FROM quiz_answers qa3
-                WHERE qa3.id = MAX(qa.id)
-            ) = 0
-            ORDER BY MAX(qa.answered_at) DESC
+                GROUP BY qq2.fingerprint
+            ) latest_by_fingerprint
+                ON latest_by_fingerprint.fingerprint = qq.fingerprint
+            JOIN quiz_answers latest
+                ON latest.id = latest_by_fingerprint.latest_answer_id
+            WHERE qa_attempt.user_id = ?
+            AND qa_attempt.session_id = ?
+            AND latest.is_correct = 0
+            ORDER BY latest.answered_at DESC
             LIMIT ?
             """,
             (

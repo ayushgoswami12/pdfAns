@@ -9,13 +9,9 @@ from fastapi import (
     Depends,
 )
 
-from fastapi.responses import (
-    StreamingResponse,
-)
+from fastapi.responses import StreamingResponse
 
-from fastapi.middleware.cors import (
-    CORSMiddleware,
-)
+from fastapi.middleware.cors import CORSMiddleware
 
 from pydantic import BaseModel
 
@@ -34,7 +30,6 @@ import json
 # ============================================================
 
 try:
-
     from main import (
         llm,
         prompt,
@@ -56,7 +51,6 @@ try:
     )
 
 except Exception as e:
-
     print(
         "ERROR importing RAG components:",
         str(e),
@@ -73,9 +67,7 @@ import database as db
 import auth
 
 
-from langchain_community.document_loaders import (
-    PyPDFLoader,
-)
+from langchain_community.document_loaders import PyPDFLoader
 
 from langchain_text_splitters import (
     RecursiveCharacterTextSplitter,
@@ -97,9 +89,7 @@ async def call_llm_with_retry(
     max_retries: int = 2,
 ):
 
-    for attempt in range(
-        max_retries + 1
-    ):
+    for attempt in range(max_retries + 1):
 
         try:
 
@@ -115,9 +105,7 @@ async def call_llm_with_retry(
 
         except Exception as exc:
 
-            if not is_rate_limit_error(
-                exc
-            ):
+            if not is_rate_limit_error(exc):
                 raise
 
             if attempt >= max_retries:
@@ -125,23 +113,19 @@ async def call_llm_with_retry(
                 raise HTTPException(
                     status_code=503,
                     detail=(
-                        "ScholarAI is temporarily rate-limited by the Groq Free tier. "
+                        "ScholarAI is temporarily rate-limited by the Groq API. "
                         "Please wait a moment and try again."
                     ),
                 )
 
-            wait_seconds = (
-                2 ** attempt
-            )
+            wait_seconds = 2 ** attempt
 
             print(
                 "Groq chat rate limited (429). "
                 f"Retrying in {wait_seconds}s..."
             )
 
-            await asyncio.sleep(
-                wait_seconds
-            )
+            await asyncio.sleep(wait_seconds)
 
 
 async def stream_llm_with_retry(
@@ -149,9 +133,7 @@ async def stream_llm_with_retry(
     max_retries: int = 2,
 ):
 
-    for attempt in range(
-        max_retries + 1
-    ):
+    for attempt in range(max_retries + 1):
 
         yielded_any = False
 
@@ -163,23 +145,18 @@ async def stream_llm_with_retry(
                     throttle_groq_call
                 )
 
-                async for chunk in (
-                    llm.astream(
-                        prompt_input
-                    )
+                async for chunk in llm.astream(
+                    prompt_input
                 ):
 
                     yielded_any = True
-
                     yield chunk
 
             return
 
         except Exception as exc:
 
-            if not is_rate_limit_error(
-                exc
-            ):
+            if not is_rate_limit_error(exc):
                 raise
 
             if yielded_any:
@@ -187,8 +164,7 @@ async def stream_llm_with_retry(
                 raise HTTPException(
                     status_code=503,
                     detail=(
-                        "The Groq service was rate-limited "
-                        "while generating the answer."
+                        "The Groq service was rate-limited while generating the answer."
                     ),
                 )
 
@@ -197,24 +173,19 @@ async def stream_llm_with_retry(
                 raise HTTPException(
                     status_code=503,
                     detail=(
-                        "ScholarAI is temporarily rate-limited "
-                        "by the Groq Free tier. "
+                        "ScholarAI is temporarily rate-limited by the Groq API. "
                         "Please wait a moment and try again."
                     ),
                 )
 
-            wait_seconds = (
-                2 ** attempt
-            )
+            wait_seconds = 2 ** attempt
 
             print(
                 "Groq chat stream rate limited (429). "
                 f"Retrying in {wait_seconds}s..."
             )
 
-            await asyncio.sleep(
-                wait_seconds
-            )
+            await asyncio.sleep(wait_seconds)
 
 
 # ============================================================
@@ -222,14 +193,12 @@ async def stream_llm_with_retry(
 # ============================================================
 
 class SignupRequest(BaseModel):
-
     email: str
     password: str
     name: str
 
 
 class LoginRequest(BaseModel):
-
     email: str
     password: str
 
@@ -238,52 +207,29 @@ class LoginRequest(BaseModel):
 async def signup(
     data: SignupRequest,
 ):
-
-    email = (
-        data.email
-        .strip()
-        .lower()
-    )
-
+    email = data.email.strip().lower()
     password = data.password
-
-    name = (
-        data.name
-        .strip()
-    )
+    name = data.name.strip()
 
     if len(password) < 6:
-
         raise HTTPException(
             status_code=400,
-            detail=(
-                "Password must be at least 6 characters."
-            ),
+            detail="Password must be at least 6 characters.",
         )
 
     if not name:
-
         raise HTTPException(
             status_code=400,
             detail="Name is required.",
         )
 
-    if db.get_user_by_email(
-        email
-    ):
-
+    if db.get_user_by_email(email):
         raise HTTPException(
             status_code=400,
-            detail=(
-                "An account with this email already exists."
-            ),
+            detail="An account with this email already exists.",
         )
 
-    password_hash = (
-        auth.hash_password(
-            password
-        )
-    )
+    password_hash = auth.hash_password(password)
 
     user_id = db.create_user(
         email=email,
@@ -291,11 +237,7 @@ async def signup(
         name=name,
     )
 
-    token = (
-        auth.create_access_token(
-            user_id
-        )
-    )
+    token = auth.create_access_token(user_id)
 
     return {
         "access_token": token,
@@ -312,18 +254,10 @@ async def signup(
 async def login(
     data: LoginRequest,
 ):
-
-    email = (
-        data.email
-        .strip()
-        .lower()
-    )
-
+    email = data.email.strip().lower()
     password = data.password
 
-    user = db.get_user_by_email(
-        email
-    )
+    user = db.get_user_by_email(email)
 
     if (
         not user
@@ -332,19 +266,12 @@ async def login(
             user["password_hash"],
         )
     ):
-
         raise HTTPException(
             status_code=401,
-            detail=(
-                "Invalid email or password."
-            ),
+            detail="Invalid email or password.",
         )
 
-    token = (
-        auth.create_access_token(
-            user["id"]
-        )
-    )
+    token = auth.create_access_token(user["id"])
 
     return {
         "access_token": token,
@@ -363,18 +290,12 @@ async def me(
         auth.get_current_user
     ),
 ):
-
-    user = db.get_user_by_id(
-        user_id
-    )
+    user = db.get_user_by_id(user_id)
 
     if not user:
-
         raise HTTPException(
             status_code=401,
-            detail=(
-                "User no longer exists."
-            ),
+            detail="User no longer exists.",
         )
 
     return {
@@ -390,7 +311,6 @@ async def me(
 
 @app.on_event("startup")
 async def on_startup():
-
     db.init_db()
 
     print(
@@ -401,12 +321,9 @@ async def on_startup():
 
 @app.get("/")
 async def root():
-
     return {
         "status": "ok",
-        "message": (
-            "ScholarAI backend is running"
-        ),
+        "message": "ScholarAI backend is running",
     }
 
 
@@ -416,7 +333,6 @@ async def root():
 
 app.add_middleware(
     CORSMiddleware,
-
     allow_origins=[
         "http://localhost:3000",
         "http://127.0.0.1:3000",
@@ -425,11 +341,11 @@ app.add_middleware(
         "https://scholarai-mu.vercel.app",
         "https://scholarai.vercel.app",
     ],
-
+    allow_origin_regex=(
+        r"https://scholarai(?:-[a-zA-Z0-9-]+)?\.vercel\.app"
+    ),
     allow_credentials=True,
-
     allow_methods=["*"],
-
     allow_headers=["*"],
 )
 
@@ -443,7 +359,6 @@ async def response_generator(
     session_id: Optional[int],
     user_id: int,
 ):
-
     print(
         f"Received query: {query} "
         f"(user_id={user_id})"
@@ -456,9 +371,7 @@ async def response_generator(
         docs = get_user_context_docs(
             query,
             user_id=user_id,
-            wide=is_repeated_question_query(
-                query
-            ),
+            wide=is_repeated_question_query(query),
         )
 
         context = "\n\n".join(
@@ -473,49 +386,33 @@ async def response_generator(
             }
         )
 
-        first_pass = (
-            await call_llm_with_retry(
-                new_prompt
-            )
+        first_pass = await call_llm_with_retry(
+            new_prompt
         )
 
-        answer_text = (
-            first_pass.content
-        )
+        answer_text = first_pass.content
 
         went_out_of_material = (
-            SENTINEL.lower()
-            in answer_text.lower()
+            SENTINEL.lower() in answer_text.lower()
             or not context.strip()
         )
 
         if went_out_of_material:
 
-            async for fb_chunk in (
-                stream_llm_with_retry(
-                    fallback_prompt.invoke(
-                        {
-                            "question": query,
-                        }
-                    )
+            async for fb_chunk in stream_llm_with_retry(
+                fallback_prompt.invoke(
+                    {
+                        "question": query,
+                    }
                 )
             ):
+                full_answer += fb_chunk.content
 
-                full_answer += (
-                    fb_chunk.content
-                )
+                yield fb_chunk.content
 
-                yield (
-                    fb_chunk.content
-                )
+                await asyncio.sleep(0.01)
 
-                await asyncio.sleep(
-                    0.01
-                )
-
-            suffix = (
-                "\n\n(outside the material)"
-            )
+            suffix = "\n\n(outside the material)"
 
             full_answer += suffix
 
@@ -524,8 +421,7 @@ async def response_generator(
         else:
 
             was_supplemented = (
-                SUPPLEMENT_TAG
-                in answer_text
+                SUPPLEMENT_TAG in answer_text
             )
 
             answer_text = (
@@ -542,20 +438,13 @@ async def response_generator(
                 len(answer_text),
                 20,
             ):
-
-                piece = (
-                    answer_text[
-                        i:i + 20
-                    ]
-                )
+                piece = answer_text[i:i + 20]
 
                 full_answer += piece
 
                 yield piece
 
-                await asyncio.sleep(
-                    0.01
-                )
+                await asyncio.sleep(0.01)
 
             if was_supplemented:
 
@@ -569,9 +458,7 @@ async def response_generator(
 
     except Exception as e:
 
-        error_msg = (
-            f"⚠️ Error: {str(e)}"
-        )
+        error_msg = f"⚠️ Error: {str(e)}"
 
         full_answer += error_msg
 
@@ -606,8 +493,7 @@ async def response_generator(
             except Exception as e:
 
                 print(
-                    "WARNING: failed to persist "
-                    "chat history:",
+                    "WARNING: failed to persist chat history:",
                     e,
                 )
 
@@ -615,23 +501,18 @@ async def response_generator(
 @app.post("/api/chat")
 async def chat(
     query: str = Form(...),
-    session_id: Optional[int] = Form(
-        None
-    ),
+    session_id: Optional[int] = Form(None),
     user_id: int = Depends(
         auth.get_current_user
     ),
 ):
-
     return StreamingResponse(
         response_generator(
             query,
             session_id,
             user_id,
         ),
-        media_type=(
-            "text/event-stream"
-        ),
+        media_type="text/event-stream",
     )
 
 
@@ -647,37 +528,40 @@ async def upload_pdf(
     ),
 ):
 
-    if not file.filename.lower().endswith(
-        ".pdf"
-    ):
-
+    if not file.filename:
         raise HTTPException(
             status_code=400,
-            detail=(
-                "Only PDF files are allowed"
-            ),
+            detail="No file selected.",
         )
+
+    if not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(
+            status_code=400,
+            detail="Only PDF files are allowed.",
+        )
+
+    tmp_file_path = None
 
     try:
 
         content = await file.read()
 
-        size_bytes = len(
-            content
-        )
+        if not content:
+            raise HTTPException(
+                status_code=400,
+                detail="The uploaded PDF is empty.",
+            )
+
+        size_bytes = len(content)
 
         with tempfile.NamedTemporaryFile(
             delete=False,
             suffix=".pdf",
         ) as tmp_file:
 
-            tmp_file.write(
-                content
-            )
+            tmp_file.write(content)
 
-            tmp_file_path = (
-                tmp_file.name
-            )
+            tmp_file_path = tmp_file.name
 
         loader = PyPDFLoader(
             tmp_file_path
@@ -685,23 +569,19 @@ async def upload_pdf(
 
         documents = loader.load()
 
-        if (
-            not documents
-            or not "".join(
-                document.page_content
-                for document in documents
-            ).strip()
-        ):
+        extracted_text = "\n".join(
+            document.page_content
+            for document in documents
+        ).strip()
 
-            os.remove(
-                tmp_file_path
-            )
+        if not documents or not extracted_text:
 
             raise HTTPException(
                 status_code=422,
                 detail=(
-                    "Could not extract any text "
-                    "from this PDF."
+                    "Could not extract any text from this PDF. "
+                    "This may be a scanned/image-only PDF. "
+                    "OCR support is required for this type of file."
                 ),
             )
 
@@ -709,39 +589,37 @@ async def upload_pdf(
 
         for document in documents:
 
-            document.metadata[
-                "source"
-            ] = basename
+            document.metadata["source"] = basename
 
             document.metadata[
                 "source_lower"
             ] = basename.lower()
 
-            document.metadata[
-                "user_id"
-            ] = user_id
+            document.metadata["user_id"] = user_id
 
-        splitter = (
-            RecursiveCharacterTextSplitter(
-                chunk_size=1500,
-                chunk_overlap=250,
+        splitter = RecursiveCharacterTextSplitter(
+            chunk_size=1500,
+            chunk_overlap=250,
+        )
+
+        chunks = splitter.split_documents(
+            documents
+        )
+
+        if not chunks:
+
+            raise HTTPException(
+                status_code=422,
+                detail="No usable text chunks could be created from this PDF.",
             )
+
+        await asyncio.to_thread(
+            throttle_groq_call
         )
 
-        chunks = (
-            splitter.split_documents(
-                documents
-            )
-        )
-
-        # PineconeEmbeddings handles the new
-        # document embeddings here.
-        vectorStore.add_documents(
-            chunks
-        )
-
-        os.remove(
-            tmp_file_path
+        await asyncio.to_thread(
+            vectorStore.add_documents,
+            chunks,
         )
 
         label = register_source(
@@ -767,19 +645,45 @@ async def upload_pdf(
         }
 
     except HTTPException:
-
         raise
 
     except Exception as e:
 
         print(
+            f"ERROR uploading PDF: {str(e)}"
+        )
+
+        print(
             traceback.format_exc()
         )
 
+        if is_rate_limit_error(e):
+
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "ScholarAI is temporarily rate-limited by the "
+                    "Groq API. Please wait a moment and try again."
+                ),
+            )
+
         raise HTTPException(
             status_code=500,
-            detail=str(e),
+            detail=(
+                f"PDF upload failed: {str(e)}"
+            ),
         )
+
+    finally:
+
+        if (
+            tmp_file_path
+            and os.path.exists(tmp_file_path)
+        ):
+            try:
+                os.remove(tmp_file_path)
+            except Exception:
+                pass
 
 
 # ============================================================
@@ -792,11 +696,8 @@ async def get_sources(
         auth.get_current_user
     ),
 ):
-
     return {
-        "sources": db.list_sources(
-            user_id
-        )
+        "sources": db.list_sources(user_id)
     }
 
 
@@ -842,9 +743,7 @@ async def delete_source_route(
     )
 
     return {
-        "message": (
-            f"Deleted {filename}"
-        )
+        "message": f"Deleted {filename}"
     }
 
 
@@ -858,11 +757,8 @@ async def get_sessions(
         auth.get_current_user
     ),
 ):
-
     return {
-        "sessions": db.list_sessions(
-            user_id
-        )
+        "sessions": db.list_sessions(user_id)
     }
 
 
@@ -883,11 +779,9 @@ async def create_session_route(
         if not title:
             title = "New Chat"
 
-        session_id = (
-            db.create_session(
-                user_id,
-                title,
-            )
+        session_id = db.create_session(
+            user_id,
+            title,
         )
 
         return {
@@ -909,8 +803,7 @@ async def create_session_route(
         raise HTTPException(
             status_code=500,
             detail=(
-                f"Failed to create session: "
-                f"{str(e)}"
+                f"Failed to create session: {str(e)}"
             ),
         )
 
@@ -946,7 +839,6 @@ async def get_session_messages(
         auth.get_current_user
     ),
 ):
-
     return {
         "messages": db.list_messages(
             user_id,
@@ -960,13 +852,11 @@ async def get_session_messages(
 # ============================================================
 
 class QuizAnswer(BaseModel):
-
     question_id: int
     selected_index: Optional[int]
 
 
 class QuizSubmitRequest(BaseModel):
-
     answers: list[QuizAnswer]
 
 
@@ -981,76 +871,91 @@ async def generate_quiz_route(
     ),
 ):
 
-    num_questions = max(
-        1,
-        min(
-            int(num_questions),
-            20,
-        ),
-    )
+    """
+    Generate a quiz for one conversation.
 
-    # ========================================================
-    # CURRENT CHAT ONLY
-    # ========================================================
+    Quiz questions are based only on:
+    1. Current chat
+    2. Current user's uploaded PDF material
 
-    messages = db.list_messages(
-        user_id,
-        session_id,
-    )
+    Previously incorrect questions are reused when available.
+    """
 
-    if not messages:
+    try:
 
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "This conversation has no messages "
-                "to quiz on yet."
+        num_questions = max(
+            1,
+            min(
+                int(num_questions),
+                20,
             ),
         )
 
-    chat_transcript = (
-        "\n\n".join(
-            (
-                "Student"
-                if message["role"]
-                == "user"
-                else "ScholarAI"
+        # ========================================================
+        # CURRENT CHAT ONLY
+        # ========================================================
+
+        messages = db.list_messages(
+            user_id,
+            session_id,
+        )
+
+        # Chat is optional for quiz generation.
+        # A quiz can be generated from the user's uploaded PDF
+        # even when this session has no chat messages yet.
+
+        chat_transcript = (
+            "\n\n".join(
+                (
+                    "Student"
+                    if message["role"] == "user"
+                    else "ScholarAI"
+                )
+                + ": "
+                + message["content"]
+                for message in messages
             )
-            + ": "
-            + message["content"]
+            if messages
+            else "No chat messages yet for this session."
+        )
+
+        # ========================================================
+        # GET CURRENT STUDENT'S PDF CONTENT
+        # ========================================================
+
+        user_questions = [
+            message["content"]
             for message in messages
-        )
-    )
+            if message["role"] == "user"
+        ]
 
-    # ========================================================
-    # GET CURRENT STUDENT'S PDF CONTENT
-    # ========================================================
-
-    user_questions = [
-        message["content"]
-        for message in messages
-        if message["role"] == "user"
-    ]
-
-    pdf_docs = []
-
-    if user_questions:
-
-        combined_query = (
-            "\n".join(
-                user_questions
-            )
-        )
+        pdf_docs = []
 
         try:
 
-            pdf_docs = (
-                get_user_context_docs(
+            if user_questions:
+
+                combined_query = "\n".join(
+                    user_questions
+                )
+
+                pdf_docs = get_user_context_docs(
                     combined_query,
                     user_id=user_id,
                     wide=True,
                 )
-            )
+
+            else:
+
+                # No chat yet.
+                # Retrieve broadly from this user's uploaded PDFs
+                # so a PDF-only quiz can be generated.
+                pdf_docs = get_user_context_docs(
+                    "key concepts, definitions, important facts, "
+                    "important topics, questions, and explanations",
+                    user_id=user_id,
+                    wide=True,
+                )
 
         except Exception as e:
 
@@ -1059,228 +964,287 @@ async def generate_quiz_route(
                 e,
             )
 
-    pdf_chunks = []
+        pdf_chunks = []
 
-    seen_chunks = set()
+        seen_chunks = set()
 
-    for doc in pdf_docs:
+        for doc in pdf_docs:
 
-        text = (
-            doc.page_content
-            .strip()
-        )
+            text = doc.page_content.strip()
 
-        if not text:
-            continue
+            if not text:
+                continue
 
-        fingerprint = hash(
-            text
-        )
+            fingerprint = hash(text)
 
-        if fingerprint in seen_chunks:
-            continue
+            if fingerprint in seen_chunks:
+                continue
 
-        seen_chunks.add(
-            fingerprint
-        )
+            seen_chunks.add(
+                fingerprint
+            )
 
-        source = doc.metadata.get(
-            "source",
-            "Uploaded PDF",
-        )
+            source = doc.metadata.get(
+                "source",
+                "Uploaded PDF",
+            )
 
-        pdf_chunks.append(
-            f"[PDF: {source}]\n{text}"
-        )
+            pdf_chunks.append(
+                f"[PDF: {source}]\n{text}"
+            )
 
-    pdf_context = (
-        "\n\n".join(
+        pdf_context = "\n\n".join(
             pdf_chunks
         )
-    )
 
-    if not pdf_context:
+        # A quiz requires at least one usable source:
+        # either chat messages or retrieved uploaded PDF material.
+        if not messages and not pdf_context.strip():
 
-        pdf_context = (
-            "No relevant PDF material was found "
-            "for this current conversation."
-        )
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Upload a PDF or ask at least one question "
+                    "before creating a quiz."
+                ),
+            )
 
-    # ========================================================
-    # WRONG QUESTIONS FROM PREVIOUS QUIZZES
-    # ========================================================
+        if not pdf_context:
 
-    weak_questions = (
-        db.get_weak_quiz_questions(
-            user_id,
-            session_id,
-            limit=num_questions,
-        )
-    )
+            pdf_context = (
+                "No relevant PDF material was found "
+                "for this current conversation."
+            )
 
-    # ========================================================
-    # ALL PREVIOUSLY ASKED QUESTIONS
-    # ========================================================
+        # ========================================================
+        # WRONG QUESTIONS FROM PREVIOUS QUIZZES
+        # ========================================================
 
-    with db.get_conn() as conn:
+        try:
 
-        rows = conn.execute(
-            """
-            SELECT DISTINCT
-                qq.question
-            FROM quiz_questions qq
-            JOIN quiz_attempts qa
-                ON qa.id = qq.attempt_id
-            WHERE qa.user_id = ?
-            AND qa.session_id = ?
-            ORDER BY qq.id DESC
-            LIMIT 200
-            """,
-            (
+            weak_questions = db.get_weak_quiz_questions(
                 user_id,
                 session_id,
-            ),
-        ).fetchall()
+                limit=num_questions,
+            )
 
-        previous_questions = [
-            row["question"]
-            for row in rows
-        ]
+        except Exception as e:
 
-    # ========================================================
-    # NEW QUESTIONS NEEDED
-    # ========================================================
+            print(
+                "WARNING: failed to load weak quiz questions:",
+                e,
+            )
 
-    new_count = max(
-        0,
-        num_questions
-        - len(weak_questions),
-    )
+            weak_questions = []
 
-    generated_new = []
+        # ========================================================
+        # ALL PREVIOUSLY ASKED QUESTIONS
+        # ========================================================
 
-    if new_count > 0:
+        with db.get_conn() as conn:
 
-        generated_new = generate_quiz(
-            chat_context=chat_transcript,
-            pdf_context=pdf_context,
-            num_questions=new_count,
-            excluded_questions=(
-                previous_questions
-            ),
+            rows = conn.execute(
+                """
+                SELECT DISTINCT
+                    qq.question
+                FROM quiz_questions qq
+                JOIN quiz_attempts qa
+                    ON qa.id = qq.attempt_id
+                WHERE qa.user_id = ?
+                AND qa.session_id = ?
+                ORDER BY qq.id DESC
+                LIMIT 200
+                """,
+                (
+                    user_id,
+                    session_id,
+                ),
+            ).fetchall()
+
+            previous_questions = [
+                row["question"]
+                for row in rows
+            ]
+
+        # ========================================================
+        # NEW QUESTIONS NEEDED
+        # ========================================================
+
+        new_count = max(
+            0,
+            num_questions - len(weak_questions),
         )
 
-    # ========================================================
-    # FINAL QUIZ
-    # ========================================================
+        generated_new = []
 
-    final_questions = []
+        if new_count > 0:
 
-    for question in weak_questions:
+            try:
 
-        if (
-            len(final_questions)
-            >= num_questions
-        ):
-            break
+                generated_new = await asyncio.to_thread(
+                    generate_quiz,
+                    chat_context=chat_transcript,
+                    pdf_context=pdf_context,
+                    num_questions=new_count,
+                    excluded_questions=previous_questions,
+                )
 
-        final_questions.append(
-            question
+            except HTTPException:
+                raise
+
+            except Exception as e:
+
+                print(
+                    "ERROR generating quiz:",
+                    str(e),
+                )
+
+                print(
+                    traceback.format_exc()
+                )
+
+                if not weak_questions:
+
+                    if is_rate_limit_error(e):
+
+                        raise HTTPException(
+                            status_code=503,
+                            detail=(
+                                "ScholarAI is temporarily rate-limited by the "
+                                "Groq API. Please wait a moment and try again."
+                            ),
+                        )
+
+                    raise HTTPException(
+                        status_code=500,
+                        detail=(
+                            "Quiz generation failed. "
+                            "Please try again in a moment."
+                        ),
+                    )
+
+        # ========================================================
+        # FINAL QUIZ
+        #
+        # Example:
+        #
+        # Requested = 5
+        # Wrong = 3
+        #
+        # Final:
+        # 3 old wrong + 2 new
+        # ========================================================
+
+        final_questions = []
+
+        for question in weak_questions:
+
+            if len(final_questions) >= num_questions:
+                break
+
+            final_questions.append(
+                question
+            )
+
+        for question in generated_new:
+
+            if len(final_questions) >= num_questions:
+                break
+
+            duplicate = any(
+                existing["question"].strip().lower()
+                == question["question"].strip().lower()
+                for existing in final_questions
+            )
+
+            if duplicate:
+                continue
+
+            final_questions.append(
+                question
+            )
+
+        if not final_questions:
+
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    "Couldn't generate useful quiz questions "
+                    "from this current chat and its uploaded material."
+                ),
+            )
+
+        # ========================================================
+        # SAVE ATTEMPT
+        # ========================================================
+
+        attempt_id = db.create_quiz_attempt(
+            user_id,
+            session_id,
         )
 
-    for question in generated_new:
+        response_questions = []
 
-        if (
-            len(final_questions)
-            >= num_questions
-        ):
-            break
+        for question in final_questions:
 
-        if any(
-            existing["question"]
-            == question["question"]
-            for existing
-            in final_questions
-        ):
-            continue
+            question_id = db.add_quiz_question(
+                attempt_id=attempt_id,
+                fingerprint=question["fingerprint"],
+                question=question["question"],
+                options_json=json.dumps(
+                    question["options"]
+                ),
+                correct_index=question["correct_index"],
+                explanation=question["explanation"],
+            )
 
-        final_questions.append(
-            question
+            response_questions.append(
+                {
+                    "id": question_id,
+                    "question": question["question"],
+                    "options": question["options"],
+                    "correct_index": question["correct_index"],
+                    "explanation": question["explanation"],
+                }
+            )
+
+        return {
+            "attempt_id": attempt_id,
+            "questions": response_questions,
+            "count": len(response_questions),
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as e:
+
+        print(
+            "ERROR in /api/sessions/{session_id}/quiz:",
+            str(e),
         )
 
-    if not final_questions:
+        print(
+            traceback.format_exc()
+        )
+
+        if is_rate_limit_error(e):
+
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "ScholarAI is temporarily rate-limited by the "
+                    "Groq API. Please wait a moment and try again."
+                ),
+            )
 
         raise HTTPException(
             status_code=500,
             detail=(
-                "Couldn't generate useful quiz questions "
-                "from this current chat and its uploaded material."
+                "Quiz generation failed. "
+                "Please try again in a moment."
             ),
         )
-
-    # ========================================================
-    # SAVE ATTEMPT
-    # ========================================================
-
-    attempt_id = (
-        db.create_quiz_attempt(
-            user_id,
-            session_id,
-        )
-    )
-
-    response_questions = []
-
-    for question in final_questions:
-
-        question_id = (
-            db.add_quiz_question(
-                attempt_id=attempt_id,
-                fingerprint=question[
-                    "fingerprint"
-                ],
-                question=question[
-                    "question"
-                ],
-                options_json=json.dumps(
-                    question[
-                        "options"
-                    ]
-                ),
-                correct_index=question[
-                    "correct_index"
-                ],
-                explanation=question[
-                    "explanation"
-                ],
-            )
-        )
-
-        response_questions.append(
-            {
-                "id": question_id,
-                "question": question[
-                    "question"
-                ],
-                "options": question[
-                    "options"
-                ],
-                "correct_index": question[
-                    "correct_index"
-                ],
-                "explanation": question[
-                    "explanation"
-                ],
-            }
-        )
-
-    return {
-        "attempt_id": attempt_id,
-        "questions": response_questions,
-        "count": len(
-            response_questions
-        ),
-    }
 
 
 # ============================================================
@@ -1311,12 +1275,10 @@ async def submit_quiz_route(
 
     try:
 
-        result = (
-            db.submit_quiz_answers(
-                user_id=user_id,
-                attempt_id=attempt_id,
-                answers=answers,
-            )
+        result = db.submit_quiz_answers(
+            user_id=user_id,
+            attempt_id=attempt_id,
+            answers=answers,
         )
 
     except ValueError as e:
