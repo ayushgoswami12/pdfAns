@@ -11,10 +11,7 @@ import threading
 
 from dotenv import load_dotenv
 
-from langchain_mistralai import (
-    MistralAIEmbeddings,
-    ChatMistralAI,
-)
+from langchain_groq import ChatGroq
 
 from langchain_core.prompts import ChatPromptTemplate
 
@@ -28,6 +25,7 @@ from langchain_text_splitters import (
 
 from langchain_pinecone import (
     PineconeVectorStore as PineconeStore,
+    PineconeEmbeddings,
 )
 
 from pinecone import Pinecone
@@ -41,36 +39,50 @@ load_dotenv()
 
 
 # ============================================================
-# GLOBAL MISTRAL RATE LIMITER
+# GLOBAL GROQ RATE LIMITER
 # ============================================================
 
-# Mistral Free tier can enforce a very low request-per-second
-# limit. Embeddings and chat completions both consume API
-# requests, so they share one process-wide limiter.
-MIN_SECONDS_BETWEEN_CALLS = 1.1
+# Groq can enforce request/token rate limits.
+# Keep a small process-wide delay between Groq calls so
+# chat and vision calls do not burst together.
+#
+# Pinecone embeddings are handled separately.
 
-_mistral_call_lock = threading.Lock()
-_last_mistral_call_time = 0.0
+MIN_SECONDS_BETWEEN_GROQ_CALLS = 0.2
+
+_groq_call_lock = threading.Lock()
+_last_groq_call_time = 0.0
 
 
-def throttle_mistral_call():
-    """Keep at least 1.1 seconds between Mistral API calls."""
+def throttle_groq_call():
+    """Keep a small gap between Groq API calls."""
 
-    global _last_mistral_call_time
+    global _last_groq_call_time
 
-    with _mistral_call_lock:
+    with _groq_call_lock:
 
         now = time.monotonic()
-        elapsed = now - _last_mistral_call_time
-        wait_needed = MIN_SECONDS_BETWEEN_CALLS - elapsed
+
+        elapsed = (
+            now - _last_groq_call_time
+        )
+
+        wait_needed = (
+            MIN_SECONDS_BETWEEN_GROQ_CALLS
+            - elapsed
+        )
 
         if wait_needed > 0:
             time.sleep(wait_needed)
 
-        _last_mistral_call_time = time.monotonic()
+        _last_groq_call_time = (
+            time.monotonic()
+        )
 
 
-def is_rate_limit_error(error: Exception) -> bool:
+def is_rate_limit_error(
+    error: Exception,
+) -> bool:
 
     error_text = str(error).lower()
 
@@ -82,8 +94,14 @@ def is_rate_limit_error(error: Exception) -> bool:
     )
 
 
-def retry_delay(attempt: int) -> float:
-    return (2 ** attempt) + random.uniform(0, 1)
+def retry_delay(
+    attempt: int,
+) -> float:
+
+    return (
+        (2 ** attempt)
+        + random.uniform(0, 1)
+    )
 
 
 def invoke_llm_with_retry(
@@ -92,24 +110,34 @@ def invoke_llm_with_retry(
     max_retries: int = 2,
 ):
 
-    for attempt in range(max_retries + 1):
+    for attempt in range(
+        max_retries + 1
+    ):
 
         try:
-            throttle_mistral_call()
-            return model.invoke(model_input)
+
+            throttle_groq_call()
+
+            return model.invoke(
+                model_input
+            )
 
         except Exception as error:
 
-            if not is_rate_limit_error(error):
+            if not is_rate_limit_error(
+                error
+            ):
                 raise
 
             if attempt >= max_retries:
                 raise
 
-            delay = retry_delay(attempt)
+            delay = retry_delay(
+                attempt
+            )
 
             print(
-                "Mistral rate limit detected. "
+                "Groq rate limit detected. "
                 f"Retrying in {delay:.2f}s..."
             )
 
@@ -120,15 +148,34 @@ def invoke_llm_with_retry(
 # VECTOR STORE
 # ============================================================
 
-embedding_model = MistralAIEmbeddings()
+# Mistral embeddings have been completely removed.
+#
+# Pinecone's hosted multilingual-e5-large model is now used
+# for both:
+#
+# 1. PDF/document embeddings
+# 2. User query embeddings
+#
+# This means no MISTRAL_API_KEY is required anymore.
+
+embedding_model = PineconeEmbeddings(
+    model="multilingual-e5-large"
+)
+
 
 pc = Pinecone(
-    api_key=os.getenv("PINECONE_API_KEY")
+    api_key=os.getenv(
+        "PINECONE_API_KEY"
+    )
 )
 
+
 index = pc.Index(
-    os.getenv("PINECONE_INDEX_NAME")
+    os.getenv(
+        "PINECONE_INDEX_NAME"
+    )
 )
+
 
 vectorStore = PineconeStore(
     index=index,
@@ -158,21 +205,29 @@ repeated_q_retriver = vectorStore.as_retriever(
 
 
 # ============================================================
-# MODELS
+# GROQ MODELS
 # ============================================================
 
-llm = ChatMistralAI(
-    model="mistral-small-2506"
+# Main text/chat model.
+llm = ChatGroq(
+    model="openai/gpt-oss-20b",
+    temperature=0,
 )
 
-vision_llm = ChatMistralAI(
-    model="pixtral-12b-2409"
+
+# Vision/OCR model.
+#
+# Qwen 3.6 27B supports image input and OCR.
+vision_llm = ChatGroq(
+    model="qwen/qwen3.6-27b",
+    temperature=0,
 )
 
 
 SENTINEL = (
     "Could not find the answer in the provided material"
 )
+
 
 SUPPLEMENT_TAG = "[[SUPPLEMENTED]]"
 
@@ -253,34 +308,52 @@ REPEATED_Q_KEYWORDS = [
 
 
 label_to_source = {}
+
 doc_counter = 0
 
 
-def register_source(basename: str) -> str:
+def register_source(
+    basename: str,
+) -> str:
+
     global doc_counter
 
     doc_counter += 1
 
     label = f"pdf{doc_counter}"
 
-    label_to_source[label] = basename
-    label_to_source[f"paper{doc_counter}"] = basename
+    label_to_source[
+        label
+    ] = basename
+
+    label_to_source[
+        f"paper{doc_counter}"
+    ] = basename
 
     return label
 
 
-def get_filter_for_query(query: str):
+def get_filter_for_query(
+    query: str,
+):
+
     q_lower = query.lower()
 
     known_filenames = sorted(
-        set(label_to_source.values()),
+        set(
+            label_to_source.values()
+        ),
         key=len,
         reverse=True,
     )
 
     for filename in known_filenames:
 
-        if filename.lower() in q_lower:
+        if (
+            filename.lower()
+            in q_lower
+        ):
+
             return {
                 "source_lower": {
                     "$eq": filename.lower()
@@ -303,7 +376,9 @@ def get_filter_for_query(query: str):
 
             return {
                 "source_lower": {
-                    "$eq": label_to_source[label].lower()
+                    "$eq": label_to_source[
+                        label
+                    ].lower()
                 }
             }
 
@@ -322,7 +397,10 @@ def is_repeated_question_query(
     )
 
 
-def encode_image(image_path):
+def encode_image(
+    image_path,
+):
+
     with open(
         image_path,
         "rb",
@@ -342,6 +420,7 @@ def get_user_context_docs(
     user_id: int,
     wide: bool = False,
 ):
+
     """
     Retrieve ONLY the authenticated user's vectors.
 
@@ -355,8 +434,6 @@ def get_user_context_docs(
     }
 
     try:
-
-        throttle_mistral_call()
 
         return vectorStore.similarity_search(
             query,
@@ -473,7 +550,9 @@ def _clean_quiz_json(
 
     try:
 
-        parsed = json.loads(raw)
+        parsed = json.loads(
+            raw
+        )
 
     except json.JSONDecodeError as e:
 
@@ -481,7 +560,10 @@ def _clean_quiz_json(
             f"Model did not return valid JSON: {e}"
         )
 
-    if not isinstance(parsed, list):
+    if not isinstance(
+        parsed,
+        list,
+    ):
 
         raise ValueError(
             "Quiz result must be a JSON array."
@@ -491,7 +573,10 @@ def _clean_quiz_json(
 
     for item in parsed:
 
-        if not isinstance(item, dict):
+        if not isinstance(
+            item,
+            dict,
+        ):
             continue
 
         required = {
@@ -501,36 +586,64 @@ def _clean_quiz_json(
             "explanation",
         }
 
-        if not required.issubset(item.keys()):
+        if not required.issubset(
+            item.keys()
+        ):
             continue
 
-        question = item["question"]
-        options = item["options"]
-        correct_index = item["correct_index"]
-        explanation = item["explanation"]
+        question = item[
+            "question"
+        ]
 
-        if not isinstance(question, str):
+        options = item[
+            "options"
+        ]
+
+        correct_index = item[
+            "correct_index"
+        ]
+
+        explanation = item[
+            "explanation"
+        ]
+
+        if not isinstance(
+            question,
+            str,
+        ):
             continue
 
-        if not isinstance(options, list):
+        if not isinstance(
+            options,
+            list,
+        ):
             continue
 
         if len(options) != 4:
             continue
 
         if not all(
-            isinstance(option, str)
+            isinstance(
+                option,
+                str,
+            )
             for option in options
         ):
             continue
 
-        if not isinstance(correct_index, int):
+        if not isinstance(
+            correct_index,
+            int,
+        ):
             continue
 
         if not 0 <= correct_index <= 3:
             continue
 
-        if not isinstance(explanation, str):
+        if not isinstance(
+            explanation,
+            str,
+        ):
             continue
 
         result.append(
@@ -565,7 +678,9 @@ def generate_quiz(
     )
 
     excluded_fingerprints = {
-        _quiz_fingerprint(question)
+        _quiz_fingerprint(
+            question
+        )
         for question in excluded_questions
     }
 
@@ -574,14 +689,16 @@ def generate_quiz(
     attempts = 0
 
     while (
-        len(generated) < num_questions
+        len(generated)
+        < num_questions
         and attempts < 5
     ):
 
         attempts += 1
 
         remaining = (
-            num_questions - len(generated)
+            num_questions
+            - len(generated)
         )
 
         previous_questions = (
@@ -592,24 +709,29 @@ def generate_quiz(
             ]
         )
 
-        previous_questions = previous_questions[-100:]
+        previous_questions = (
+            previous_questions[-100:]
+        )
 
         excluded_text = (
             "\n".join(
                 f"- {question}"
-                for question in previous_questions
+                for question
+                in previous_questions
             )
             if previous_questions
             else "None"
         )
 
-        filled_prompt = quiz_prompt.invoke(
-            {
-                "num_questions": remaining,
-                "excluded_questions": excluded_text,
-                "chat_context": chat_context,
-                "pdf_context": pdf_context,
-            }
+        filled_prompt = (
+            quiz_prompt.invoke(
+                {
+                    "num_questions": remaining,
+                    "excluded_questions": excluded_text,
+                    "chat_context": chat_context,
+                    "pdf_context": pdf_context,
+                }
+            )
         )
 
         response = invoke_llm_with_retry(
@@ -623,11 +745,18 @@ def generate_quiz(
 
         for candidate in candidates:
 
-            fingerprint = _quiz_fingerprint(
-                candidate["question"]
+            fingerprint = (
+                _quiz_fingerprint(
+                    candidate[
+                        "question"
+                    ]
+                )
             )
 
-            if fingerprint in excluded_fingerprints:
+            if (
+                fingerprint
+                in excluded_fingerprints
+            ):
                 continue
 
             if any(
@@ -650,10 +779,15 @@ def generate_quiz(
                 fingerprint
             )
 
-            if len(generated) >= num_questions:
+            if (
+                len(generated)
+                >= num_questions
+            ):
                 break
 
-    return generated[:num_questions]
+    return generated[
+        :num_questions
+    ]
 
 
 # ============================================================
@@ -664,8 +798,10 @@ def answer_query(
     query: str,
 ) -> str:
 
-    wide = is_repeated_question_query(
-        query
+    wide = (
+        is_repeated_question_query(
+            query
+        )
     )
 
     docs = get_user_context_docs(
@@ -698,15 +834,19 @@ def answer_query(
         or not context.strip()
     ):
 
-        fb_prompt = fallback_prompt.invoke(
-            {
-                "question": query
-            }
+        fb_prompt = (
+            fallback_prompt.invoke(
+                {
+                    "question": query
+                }
+            )
         )
 
-        fb_response = invoke_llm_with_retry(
-            llm,
-            fb_prompt,
+        fb_response = (
+            invoke_llm_with_retry(
+                llm,
+                fb_prompt,
+            )
         )
 
         return (
@@ -761,7 +901,9 @@ if __name__ == "__main__":
 
         if (
             os.path.isfile(query)
-            and query.lower().endswith(".pdf")
+            and query.lower().endswith(
+                ".pdf"
+            )
         ):
 
             print(
@@ -770,8 +912,10 @@ if __name__ == "__main__":
 
             try:
 
-                basename = os.path.basename(
-                    query
+                basename = (
+                    os.path.basename(
+                        query
+                    )
                 )
 
                 loader = PyPDFLoader(
@@ -796,17 +940,19 @@ if __name__ == "__main__":
 
                 for page in pages:
 
-                    page.metadata["source"] = (
-                        basename
-                    )
+                    page.metadata[
+                        "source"
+                    ] = basename
 
                     page.metadata[
                         "source_lower"
                     ] = basename.lower()
 
-                splitter = RecursiveCharacterTextSplitter(
-                    chunk_size=1000,
-                    chunk_overlap=200,
+                splitter = (
+                    RecursiveCharacterTextSplitter(
+                        chunk_size=1000,
+                        chunk_overlap=200,
+                    )
                 )
 
                 split_docs = (
@@ -814,8 +960,6 @@ if __name__ == "__main__":
                         pages
                     )
                 )
-
-                throttle_mistral_call()
 
                 vectorStore.add_documents(
                     split_docs
@@ -857,12 +1001,16 @@ if __name__ == "__main__":
 
             try:
 
-                basename = os.path.basename(
-                    query
+                basename = (
+                    os.path.basename(
+                        query
+                    )
                 )
 
-                base64_image = encode_image(
-                    query
+                base64_image = (
+                    encode_image(
+                        query
+                    )
                 )
 
                 message = HumanMessage(
@@ -916,9 +1064,11 @@ if __name__ == "__main__":
                     },
                 )
 
-                splitter = RecursiveCharacterTextSplitter(
-                    chunk_size=1000,
-                    chunk_overlap=200,
+                splitter = (
+                    RecursiveCharacterTextSplitter(
+                        chunk_size=1000,
+                        chunk_overlap=200,
+                    )
                 )
 
                 split_docs = (
@@ -926,8 +1076,6 @@ if __name__ == "__main__":
                         [doc]
                     )
                 )
-
-                throttle_mistral_call()
 
                 vectorStore.add_documents(
                     split_docs
