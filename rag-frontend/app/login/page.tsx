@@ -1,4 +1,3 @@
-// FILE: app/login/page.tsx
 "use client";
 
 import { useState } from "react";
@@ -6,10 +5,10 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { login } from "@/lib/auth";
 import { IconDiamond } from "@/components/icons";
-import { ACCENT_GRADIENT } from "@/lib/theme";
 
 export default function LoginPage() {
   const router = useRouter();
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -17,6 +16,7 @@ export default function LoginPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
     setError(null);
     setLoading(true);
 
@@ -24,83 +24,246 @@ export default function LoginPage() {
       await login(email.trim(), password);
       router.push("/chat");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Login failed");
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Login failed"
+      );
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <main className="min-h-screen relative overflow-hidden bg-[#0B0618] flex items-center justify-center px-4 py-10">
-      {/* Purple ambient background */}
-      <div className="absolute inset-0 pointer-events-none">
-        <div className="absolute -top-40 -left-32 w-[500px] h-[500px] rounded-full bg-violet-600/20 blur-[120px]" />
-        <div className="absolute -bottom-48 -right-32 w-[560px] h-[560px] rounded-full bg-fuchsia-600/15 blur-[130px]" />
-        <div className="absolute top-1/3 left-1/2 -translate-x-1/2 w-[420px] h-[420px] rounded-full bg-purple-500/10 blur-[120px]" />
-      </div>
+    <main className="min-h-screen bg-[#F8F7FB] flex">
 
-      {/* Subtle grid texture */}
-      <div
-        className="absolute inset-0 opacity-[0.035] pointer-events-none"
-        style={{
-          backgroundImage:
-            "linear-gradient(rgba(255,255,255,0.8) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.8) 1px, transparent 1px)",
-          backgroundSize: "42px 42px",
-        }}
-      />
+      {/* =========================================================
+          LEFT PRODUCT PANEL
+      ========================================================= */}
+      <section className="hidden lg:flex lg:w-[55%] relative overflow-hidden bg-[#171027] text-white">
 
-      <div className="relative z-10 w-full max-w-[440px]">
-        {/* Brand */}
-        <div className="flex flex-col items-center mb-8">
-          <div className="relative mb-5">
-            <div className="absolute inset-0 rounded-[22px] bg-violet-500/40 blur-xl" />
+        {/* Background */}
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
 
-            <div
-              className="relative w-16 h-16 rounded-[22px] flex items-center justify-center text-white border border-white/15 shadow-2xl"
-              style={{
-                background:
-                  "linear-gradient(135deg, #7C3AED 0%, #A855F7 50%, #C026D3 100%)",
-              }}
-            >
-              <IconDiamond width={29} height={29} />
-            </div>
-          </div>
+          <div className="absolute -top-32 -left-32 w-[500px] h-[500px] rounded-full bg-violet-600/15 blur-3xl" />
 
-          <h1 className="text-[30px] font-black tracking-tight text-white">
-            Welcome back
-          </h1>
+          <div className="absolute bottom-[-180px] right-[-100px] w-[500px] h-[500px] rounded-full bg-purple-500/10 blur-3xl" />
 
-          <p className="text-[14px] text-violet-200/70 mt-2">
-            Sign in to continue to{" "}
-            <span className="text-violet-200 font-semibold">
-              ScholarAI
-            </span>
-          </p>
+          <div
+            className="absolute inset-0 opacity-[0.025]"
+            style={{
+              backgroundImage:
+                "linear-gradient(rgba(255,255,255,1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,1) 1px, transparent 1px)",
+              backgroundSize: "48px 48px",
+            }}
+          />
+
         </div>
 
-        {/* Login card */}
-        <div className="rounded-[30px] border border-violet-300/15 bg-white/[0.07] backdrop-blur-2xl shadow-[0_25px_80px_rgba(0,0,0,0.45)] p-7 sm:p-9">
-          <div className="mb-7">
-            <h2 className="text-[18px] font-bold text-white">
-              Sign in
-            </h2>
+        <div className="relative z-10 w-full flex flex-col justify-between px-12 xl:px-16 py-10">
 
-            <p className="text-[12.5px] text-violet-200/55 mt-1">
-              Enter your account details below.
-            </p>
+          {/* Brand */}
+          <div className="flex items-center gap-3">
+
+            <div className="w-10 h-10 rounded-xl bg-violet-600 flex items-center justify-center shadow-lg shadow-violet-950/50">
+
+              <IconDiamond
+                width={19}
+                height={19}
+                className="text-white"
+              />
+
+            </div>
+
+            <span className="text-[18px] font-bold tracking-tight">
+              ScholarAI
+            </span>
+
           </div>
 
+
+          {/* Main */}
+          <div className="max-w-[570px] -mt-10">
+
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-violet-400/15 bg-violet-500/[0.08] text-violet-200 text-[11px] font-medium mb-6">
+
+              <span className="w-1.5 h-1.5 rounded-full bg-violet-400" />
+
+              Your personal AI study workspace
+
+            </div>
+
+
+            <h2 className="text-[42px] xl:text-[50px] leading-[1.05] font-bold tracking-[-0.035em] max-w-[540px]">
+
+              Welcome back
+              <br />
+
+              <span className="text-violet-300">
+                to your workspace.
+              </span>
+
+            </h2>
+
+
+            <p className="mt-6 text-[15px] leading-7 text-white/50 max-w-[480px]">
+
+              Continue learning with your documents, conversations,
+              and personal knowledge base — all in one place.
+
+            </p>
+
+
+            {/* Feature cards */}
+            <div className="mt-10 grid grid-cols-2 gap-3 max-w-[500px]">
+
+              {/* Card 1 */}
+              <div className="rounded-2xl border border-white/[0.07] bg-white/[0.045] p-4">
+
+                <div className="w-8 h-8 rounded-lg bg-violet-500/10 flex items-center justify-center mb-4">
+
+                  <IconDiamond
+                    width={15}
+                    height={15}
+                    className="text-violet-300"
+                  />
+
+                </div>
+
+                <p className="text-[12px] font-semibold text-white/80">
+                  Ask your documents
+                </p>
+
+                <p className="mt-1.5 text-[10.5px] leading-5 text-white/30">
+                  Get answers grounded in the material you upload.
+                </p>
+
+              </div>
+
+
+              {/* Card 2 */}
+              <div className="rounded-2xl border border-white/[0.07] bg-white/[0.045] p-4">
+
+                <div className="w-8 h-8 rounded-lg bg-violet-500/10 flex items-center justify-center mb-4">
+
+                  <div className="w-3.5 h-3.5 rounded-md border border-violet-300/60" />
+
+                </div>
+
+                <p className="text-[12px] font-semibold text-white/80">
+                  Keep everything together
+                </p>
+
+                <p className="mt-1.5 text-[10.5px] leading-5 text-white/30">
+                  Your sources and conversations stay inside one workspace.
+                </p>
+
+              </div>
+
+
+              {/* Card 3 */}
+              <div className="col-span-2 rounded-2xl border border-white/[0.07] bg-white/[0.045] p-4 flex items-center gap-4">
+
+                <div className="w-9 h-9 rounded-xl bg-violet-500/10 flex items-center justify-center shrink-0">
+
+                  <div className="flex gap-1 items-end">
+
+                    <span className="w-1 h-2 rounded-full bg-violet-300/50" />
+
+                    <span className="w-1 h-3.5 rounded-full bg-violet-300/70" />
+
+                    <span className="w-1 h-5 rounded-full bg-violet-300" />
+
+                  </div>
+
+                </div>
+
+
+                <div>
+
+                  <p className="text-[12px] font-semibold text-white/80">
+                    Pick up where you left off
+                  </p>
+
+                  <p className="mt-1 text-[10.5px] text-white/30">
+                    Continue your conversations and keep learning without
+                    starting over.
+                  </p>
+
+                </div>
+
+              </div>
+
+            </div>
+
+          </div>
+
+
+          {/* Footer */}
+          <p className="text-[10.5px] text-white/20">
+            © {new Date().getFullYear()} ScholarAI
+          </p>
+
+        </div>
+
+      </section>
+
+
+      {/* =========================================================
+          RIGHT LOGIN PANEL
+      ========================================================= */}
+      <section className="flex-1 flex items-center justify-center px-5 sm:px-8 py-10">
+
+        <div className="w-full max-w-[390px]">
+
+          {/* Mobile logo */}
+          <div className="flex lg:hidden items-center justify-center mb-10">
+
+            <div className="w-10 h-10 rounded-xl bg-violet-600 flex items-center justify-center mr-3">
+
+              <IconDiamond
+                width={18}
+                height={18}
+                className="text-white"
+              />
+
+            </div>
+
+            <span className="text-[18px] font-bold text-gray-900">
+              ScholarAI
+            </span>
+
+          </div>
+
+
+          {/* Heading */}
+          <div className="mb-8">
+
+            <h1 className="text-[29px] font-bold tracking-[-0.025em] text-gray-900">
+              Welcome back
+            </h1>
+
+            <p className="mt-2 text-[14px] text-gray-500">
+              Sign in to continue to your ScholarAI workspace.
+            </p>
+
+          </div>
+
+
+          {/* Form */}
           <form
             onSubmit={handleSubmit}
-            className="flex flex-col gap-5"
+            className="space-y-5"
           >
+
             {/* Email */}
             <div>
+
               <label
                 htmlFor="email"
-                className="text-[12.5px] font-semibold text-violet-100/80 mb-2 block"
+                className="block text-[12.5px] font-semibold text-gray-700 mb-2"
               >
-                Email address
+                Email
               </label>
 
               <input
@@ -110,17 +273,38 @@ export default function LoginPage() {
                 required
                 autoComplete="username"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(e) =>
+                  setEmail(e.target.value)
+                }
                 placeholder="you@example.com"
-                className="w-full h-12 bg-black/20 border border-violet-200/15 rounded-2xl px-4 text-[14px] text-white placeholder:text-violet-100/30 outline-none transition-all focus:border-violet-400/70 focus:ring-4 focus:ring-violet-500/10 focus:bg-black/25"
+                className="
+                  w-full
+                  h-12
+                  px-4
+                  rounded-xl
+                  border
+                  border-gray-300
+                  bg-white
+                  text-[14px]
+                  text-gray-900
+                  placeholder:text-gray-400
+                  outline-none
+                  transition-all
+                  focus:border-violet-500
+                  focus:ring-4
+                  focus:ring-violet-500/10
+                "
               />
+
             </div>
+
 
             {/* Password */}
             <div>
+
               <label
                 htmlFor="password"
-                className="text-[12.5px] font-semibold text-violet-100/80 mb-2 block"
+                className="block text-[12.5px] font-semibold text-gray-700 mb-2"
               >
                 Password
               </label>
@@ -132,56 +316,121 @@ export default function LoginPage() {
                 required
                 autoComplete="current-password"
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={(e) =>
+                  setPassword(e.target.value)
+                }
                 placeholder="Enter your password"
-                className="w-full h-12 bg-black/20 border border-violet-200/15 rounded-2xl px-4 text-[14px] text-white placeholder:text-violet-100/30 outline-none transition-all focus:border-violet-400/70 focus:ring-4 focus:ring-violet-500/10 focus:bg-black/25"
+                className="
+                  w-full
+                  h-12
+                  px-4
+                  rounded-xl
+                  border
+                  border-gray-300
+                  bg-white
+                  text-[14px]
+                  text-gray-900
+                  placeholder:text-gray-400
+                  outline-none
+                  transition-all
+                  focus:border-violet-500
+                  focus:ring-4
+                  focus:ring-violet-500/10
+                "
               />
+
             </div>
 
+
+            {/* Error */}
             {error && (
-              <p className="text-[12.5px] text-red-200 bg-red-500/10 border border-red-400/20 rounded-xl px-3.5 py-3">
-                {error}
-              </p>
+              <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3">
+
+                <p className="text-[12.5px] leading-5 text-red-600">
+                  {error}
+                </p>
+
+              </div>
             )}
 
+
+            {/* Submit */}
             <button
               type="submit"
               disabled={loading}
-              className="mt-1 h-12 w-full rounded-2xl text-white text-[14px] font-bold shadow-[0_10px_30px_rgba(124,58,237,0.35)] transition-all hover:-translate-y-0.5 hover:shadow-[0_14px_36px_rgba(124,58,237,0.45)] active:translate-y-0 disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:translate-y-0"
-              style={{
-                background:
-                  "linear-gradient(135deg, #6D28D9 0%, #8B5CF6 50%, #C026D3 100%)",
-              }}
+              className="
+                w-full
+                h-12
+                rounded-xl
+                bg-violet-600
+                hover:bg-violet-700
+                active:bg-violet-800
+                text-white
+                text-[13.5px]
+                font-semibold
+                shadow-sm
+                transition-all
+                disabled:opacity-60
+                disabled:cursor-not-allowed
+              "
             >
-              {loading ? "Signing in…" : "Sign In"}
+              {loading
+                ? "Signing in..."
+                : "Sign in"}
             </button>
+
           </form>
 
-          <div className="flex items-center gap-3 my-6">
-            <div className="h-px flex-1 bg-violet-200/10" />
 
-            <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-violet-200/35">
-              ScholarAI
+          {/* Signup divider */}
+          <div className="flex items-center gap-4 my-8">
+
+            <div className="h-px flex-1 bg-gray-200" />
+
+            <span className="text-[10px] font-medium uppercase tracking-[0.14em] text-gray-400">
+              New to ScholarAI?
             </span>
 
-            <div className="h-px flex-1 bg-violet-200/10" />
+            <div className="h-px flex-1 bg-gray-200" />
+
           </div>
 
-          <p className="text-[13px] text-violet-100/55 text-center">
-            Don't have an account?{" "}
-            <Link
-              href="/signup"
-              className="font-bold text-violet-300 hover:text-white transition-colors"
-            >
-              Create one
-            </Link>
+
+          {/* Signup */}
+          <Link
+            href="/signup"
+            className="
+              flex
+              items-center
+              justify-center
+              w-full
+              h-12
+              rounded-xl
+              border
+              border-gray-300
+              bg-white
+              text-[13.5px]
+              font-semibold
+              text-gray-700
+              hover:border-violet-300
+              hover:text-violet-700
+              hover:bg-violet-50/40
+              transition-all
+            "
+          >
+            Create an account
+          </Link>
+
+
+          {/* Footer */}
+          <p className="text-center text-[11px] text-gray-400 mt-8 leading-5">
+            Secure access to your personal ScholarAI workspace.
           </p>
+
         </div>
 
-        <p className="text-center text-[10.5px] text-violet-200/25 mt-6">
-          Secure access to your personal AI workspace
-        </p>
-      </div>
+      </section>
+
     </main>
   );
 }

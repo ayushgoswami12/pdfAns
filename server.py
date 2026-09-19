@@ -257,21 +257,64 @@ async def login(
     email = data.email.strip().lower()
     password = data.password
 
+    print("\n========== LOGIN DEBUG ==========")
+    print("LOGIN EMAIL:", email)
+    print("PASSWORD RECEIVED:", bool(password))
+
     user = db.get_user_by_email(email)
 
-    if (
-        not user
-        or not auth.verify_password(
-            password,
-            user["password_hash"],
-        )
-    ):
+    print("USER FOUND:", bool(user))
+
+    if not user:
+        print("LOGIN FAILED: USER NOT FOUND")
+        print("================================\n")
+
         raise HTTPException(
             status_code=401,
             detail="Invalid email or password.",
         )
 
-    token = auth.create_access_token(user["id"])
+    print("USER ID:", user["id"])
+    print("USER EMAIL IN DB:", user["email"])
+    print(
+        "PASSWORD HASH EXISTS:",
+        bool(user.get("password_hash")),
+    )
+
+    try:
+        password_valid = auth.verify_password(
+            password,
+            user["password_hash"],
+        )
+    except Exception as e:
+        print(
+            "PASSWORD VERIFICATION ERROR:",
+            repr(e),
+        )
+        password_valid = False
+
+    print(
+        "PASSWORD VALID:",
+        password_valid,
+    )
+
+    if not password_valid:
+        print(
+            "LOGIN FAILED: PASSWORD DOES NOT MATCH"
+        )
+        print("================================\n")
+
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid email or password.",
+        )
+
+    token = auth.create_access_token(
+        user["id"]
+    )
+
+    print("LOGIN SUCCESS: TOKEN CREATED")
+    print("================================\n")
 
     return {
         "access_token": token,
