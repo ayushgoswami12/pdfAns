@@ -79,10 +79,6 @@ app = FastAPI()
 # MISTRAL CHAT RATE LIMIT PROTECTION
 # ============================================================
 
-# Keep chat requests to Mistral serialized in this backend process.
-# Mistral rate limits are enforced at the organization level, so
-# concurrent requests can otherwise consume the request/token budget
-# very quickly.
 llm_semaphore = asyncio.Semaphore(1)
 
 
@@ -97,9 +93,7 @@ async def call_llm_with_retry(
         Initial request + up to 3 retries.
 
     Wait times:
-        Attempt 1 -> 2 seconds
-        Attempt 2 -> 4 seconds
-        Attempt 3 -> 8 seconds
+        2s -> 4s -> 8s
     """
 
     for attempt in range(max_retries + 1):
@@ -116,9 +110,6 @@ async def call_llm_with_retry(
 
             error_text = str(exc)
 
-            # Only retry rate-limit errors.
-            # Other errors should immediately reach the normal
-            # error handler instead of being hidden.
             if (
                 "429" not in error_text
                 or attempt >= max_retries
@@ -145,11 +136,8 @@ async def stream_llm_with_retry(
     """
     Stream from the chat LLM while serializing access.
 
-    A retry is performed only when the 429 happens before
-    any content has been yielded.
-
-    This is important because retrying after partial output
-    could cause the same answer to be sent twice.
+    Retry only when a 429 happens before any content
+    has been emitted.
     """
 
     for attempt in range(max_retries + 1):
@@ -174,10 +162,6 @@ async def stream_llm_with_retry(
 
             error_text = str(exc)
 
-            # Do not retry if:
-            # 1. It is not a 429
-            # 2. Some content was already streamed
-            # 3. We have exhausted our retries
             if (
                 "429" not in error_text
                 or yielded_any
@@ -365,6 +349,10 @@ app.add_middleware(
         "https://scholarai.vercel.app",
     ],
 
+    allow_origin_regex=(
+        r"^https://scholarai-[a-zA-Z0-9-]+\.vercel\.app$"
+    ),
+
     allow_credentials=True,
 
     allow_methods=["*"],
@@ -413,16 +401,7 @@ async def response_generator(
         )
 
         # ====================================================
-        # FIRST CHAT COMPLETION
-        #
-        # Previously:
-        #
-        # first_pass = await llm.ainvoke(new_prompt)
-        #
-        # Now it uses:
-        # - semaphore
-        # - 429 detection
-        # - exponential backoff
+        # FIRST CHAT COMPLETION WITH 429 RETRY
         # ====================================================
 
         first_pass = await call_llm_with_retry(
@@ -489,9 +468,6 @@ async def response_generator(
                 .strip()
             )
 
-            # Send the already-generated answer
-            # in small chunks to preserve the existing
-            # streaming UI behavior.
             for i in range(
                 0,
                 len(answer_text),
@@ -812,16 +788,41 @@ async def create_session_route(
         auth.get_current_user
     ),
 ):
+    try:
+        # Make sure the title is always a valid string.
+        title = (title or "New Chat").strip()
 
-    session_id = db.create_session(
-        user_id,
-        title,
-    )
+        if not title:
+            title = "New Chat"
 
-    return {
-        "id": session_id,
-        "title": title,
-    }
+        session_id = db.create_session(
+            user_id,
+            title,
+        )
+
+        return {
+            "id": session_id,
+            "title": title,
+        }
+
+    except Exception as e:
+        # Print the complete traceback to Render logs
+        # so we can see the actual SQLite error.
+        print(
+            "ERROR creating session:",
+            str(e),
+        )
+
+        print(
+            traceback.format_exc()
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                f"Failed to create session: {str(e)}"
+            ),
+        )
 
 
 @app.delete(
@@ -864,6 +865,23 @@ async def get_session_messages(
     }
 
 
+@app.post("/api/sessions")
+async def create_session_route_duplicate(
+    title: str = Form("New Chat"),
+    user_id: int = Depends(
+        auth.get_current_user
+    ),
+):
+    """
+    This route is intentionally not used.
+    The actual /api/sessions route is defined above.
+    """
+    raise HTTPException(
+        status_code=500,
+        detail="Duplicate session route.",
+    )
+
+
 # ============================================================
 # QUIZ
 # ============================================================
@@ -896,10 +914,6 @@ async def generate_quiz_route(
         ),
     )
 
-    # ========================================================
-    # CURRENT CHAT ONLY
-    # ========================================================
-
     messages = db.list_messages(
         user_id,
         session_id,
@@ -925,10 +939,6 @@ async def generate_quiz_route(
         + message["content"]
         for message in messages
     )
-
-    # ========================================================
-    # GET CURRENT STUDENT'S PDF CONTENT
-    # ========================================================
 
     user_questions = [
         message["content"]
@@ -1001,19 +1011,11 @@ async def generate_quiz_route(
             "for this current conversation."
         )
 
-    # ========================================================
-    # WRONG QUESTIONS FROM PREVIOUS QUIZZES
-    # ========================================================
-
     weak_questions = db.get_weak_quiz_questions(
         user_id,
         session_id,
         limit=num_questions,
     )
-
-    # ========================================================
-    # ALL PREVIOUSLY ASKED QUESTIONS
-    # ========================================================
 
     with db.get_conn() as conn:
 
@@ -1040,10 +1042,6 @@ async def generate_quiz_route(
             for row in rows
         ]
 
-    # ========================================================
-    # NEW QUESTIONS NEEDED
-    # ========================================================
-
     new_count = max(
         0,
         num_questions
@@ -1060,18 +1058,6 @@ async def generate_quiz_route(
             num_questions=new_count,
             excluded_questions=previous_questions,
         )
-
-    # ========================================================
-    # FINAL QUIZ
-    #
-    # Example:
-    #
-    # Requested = 5
-    # Wrong = 3
-    #
-    # Final:
-    # 3 old wrong + 2 new
-    # ========================================================
 
     final_questions = []
 
@@ -1116,10 +1102,6 @@ async def generate_quiz_route(
                 "from this current chat and its uploaded material."
             ),
         )
-
-    # ========================================================
-    # SAVE ATTEMPT
-    # ========================================================
 
     attempt_id = db.create_quiz_attempt(
         user_id,
