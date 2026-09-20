@@ -53,6 +53,7 @@ import {
   listSources,
   uploadFile,
   generateQuiz,
+  generateChapterWisePyq,
   SessionRow,
   QuizQuestion,
 } from "@/lib/api";
@@ -124,6 +125,32 @@ function isQuizRequest(
         query
       )
   );
+}
+
+
+function isChapterWisePyqRequest(
+  text: string
+): boolean {
+  const query = text
+    .toLowerCase()
+    .replace(/[?!.,']/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const hasPyq =
+    /\bpyq(s)?\b/.test(query) ||
+    /previous year question/.test(query) ||
+    /question paper/.test(query);
+
+  const hasChapter =
+    /chapter wise/.test(query) ||
+    /chapter[- ]?wise/.test(query) ||
+    /unit wise/.test(query) ||
+    /topic wise/.test(query) ||
+    /according to (the )?syllabus/.test(query) ||
+    /from (the )?syllabus/.test(query);
+
+  return hasPyq && hasChapter;
 }
 
 
@@ -901,6 +928,19 @@ function ChatPageInner() {
 
 
       if (
+        activeSessionId ===
+        null
+      ) {
+
+        setQuizError(
+          "Ask at least one question before creating a quiz."
+        );
+
+        return;
+      }
+
+
+      if (
         isTyping
       ) {
 
@@ -936,59 +976,9 @@ function ChatPageInner() {
 
       try {
 
-        let sessionId =
-          activeSessionId;
-
-        // A PDF-only quiz still needs a backend session because
-        // the quiz API is scoped to /api/sessions/{session_id}/quiz.
-        // Create an empty session only when this is a brand-new chat.
-        if (
-          sessionId ===
-          null
-        ) {
-
-          const created =
-            await createSession(
-              "Quiz"
-            );
-
-          sessionId =
-            created.id;
-
-          setActiveSessionId(
-            sessionId
-          );
-
-          setSessionTitle(
-            "Quiz"
-          );
-
-          setSessions(
-            (
-              previous
-            ) => [
-              created,
-              ...previous,
-            ]
-          );
-
-          if (
-            typeof window !==
-            "undefined"
-          ) {
-
-            localStorage.setItem(
-              LAST_SESSION_KEY,
-              String(
-                sessionId
-              )
-            );
-          }
-        }
-
         const result =
           await generateQuiz(
-            sessionId,
+            activeSessionId,
             safeCount
           );
 
@@ -1116,6 +1106,75 @@ function ChatPageInner() {
         isTyping ||
         isGeneratingQuiz
       ) {
+
+        return;
+      }
+
+
+      if (
+        isChapterWisePyqRequest(
+          userMessage
+        )
+      ) {
+
+        setInput("");
+
+        setQuizError(null);
+
+        setMessages(
+          (previous) => [
+            ...previous,
+            {
+              role: "user",
+              content: userMessage,
+            },
+            {
+              role: "assistant",
+              content: "",
+            },
+          ]
+        );
+
+        setIsTyping(true);
+
+        try {
+          const result =
+            await generateChapterWisePyq();
+
+          setMessages(
+            (previous) => {
+              const updated = [...previous];
+              const last = updated.length - 1;
+
+              updated[last] = {
+                role: "assistant",
+                content: result.markdown,
+              };
+
+              return updated;
+            }
+          );
+        } catch (error) {
+          setMessages(
+            (previous) => {
+              const updated = [...previous];
+              const last = updated.length - 1;
+
+              updated[last] = {
+                role: "assistant",
+                content: `⚠️ ${
+                  error instanceof Error
+                    ? error.message
+                    : "Chapter-wise PYQ generation failed."
+                }`,
+              };
+
+              return updated;
+            }
+          );
+        } finally {
+          setIsTyping(false);
+        }
 
         return;
       }
@@ -2022,7 +2081,7 @@ function ChatPageInner() {
           <input
             type="file"
             multiple
-            accept=".pdf"
+            accept=".pdf,.png,.jpg,.jpeg,.webp,.bmp,.tif,.tiff"
             className="hidden"
             ref={
               fileInputRef

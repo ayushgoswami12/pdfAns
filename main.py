@@ -218,7 +218,7 @@ llm = ChatGroq(
 # Kept as your existing model for OCR/image processing.
 
 vision_llm = ChatGroq(
-    model="qwen/qwen3.6-27b",
+    model="meta-llama/llama-4-scout-17b-16e-instruct",
     temperature=0,
 )
 

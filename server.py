@@ -23,6 +23,11 @@ import asyncio
 import traceback
 import sys
 import json
+import re
+
+from langchain_core.documents import Document
+
+import ocr_service
 
 
 # ============================================================
@@ -727,6 +732,513 @@ async def upload_pdf(
                 os.remove(tmp_file_path)
             except Exception:
                 pass
+
+
+# ============================================================
+# OCR / PYQ DOCUMENT ANALYSIS
+# ============================================================
+
+OCR_ALLOWED_EXTENSIONS = {
+    ".pdf",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".webp",
+    ".bmp",
+    ".tif",
+    ".tiff",
+}
+
+
+def _parse_llm_json(text: str):
+    """Parse JSON even when the model wraps it in markdown fences."""
+    cleaned = (text or "").strip()
+
+    if cleaned.startswith("```"):
+        cleaned = re.sub(
+            r"^```(?:json)?\s*",
+            "",
+            cleaned,
+            flags=re.IGNORECASE,
+        )
+        cleaned = re.sub(
+            r"\s*```$",
+            "",
+            cleaned,
+        )
+
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        pass
+
+    start = cleaned.find("{")
+    end = cleaned.rfind("}")
+
+    if start >= 0 and end > start:
+        return json.loads(cleaned[start:end + 1])
+
+    raise ValueError("The AI returned invalid JSON.")
+
+
+async def _map_pyqs_to_syllabus(
+    syllabus_text: str,
+    pyq_documents: list[dict],
+):
+    syllabus_text = syllabus_text[:24000]
+
+    question_lines = []
+    total_chars = 0
+
+    for document in pyq_documents:
+        questions = ocr_service.parse_question_blocks(
+            document["extracted_text"]
+        )
+
+        # If numbering was unusual, still give the model the raw document.
+        if not questions:
+            questions = [
+                {
+                    "number": "",
+                    "text": document["extracted_text"][:14000],
+                    "page": 1,
+                }
+            ]
+
+        for question in questions:
+            line = (
+                f"PAPER: {document['filename']} | "
+                f"Q: {question['number']} | "
+                f"PAGE: {question.get('page', 1)} | "
+                f"TEXT: {question['text']}"
+            )
+
+            if total_chars + len(line) > 42000:
+                break
+
+            question_lines.append(line)
+            total_chars += len(line)
+
+        if total_chars >= 42000:
+            break
+
+    if not question_lines:
+        raise HTTPException(
+            status_code=400,
+            detail="No usable PYQ questions were found in the uploaded paper.",
+        )
+
+    prompt_text = f"""
+You are the document-analysis engine for ScholarAI.
+
+TASK:
+Map every previous-year-question (PYQ) below to the most appropriate
+chapter/topic/unit from the supplied syllabus.
+
+STRICT RULES:
+1. Use ONLY the supplied syllabus to decide the chapter/unit.
+2. Use ONLY the supplied PYQ text. Do not invent or rewrite questions.
+3. Preserve each PYQ's wording exactly as supplied, except harmless whitespace.
+4. Every question should appear exactly once.
+5. If a question cannot be confidently mapped to the syllabus, put it in
+   unmapped instead of guessing.
+6. Keep the original paper filename, question number, and page when available.
+7. Return JSON only. No markdown. No explanation outside JSON.
+
+SYLLABUS:
+{syllabus_text}
+
+PYQS:
+{chr(10).join(question_lines)}
+
+RETURN EXACTLY THIS JSON SHAPE:
+{{
+  "chapters": [
+    {{
+      "unit": "Unit 1",
+      "chapter": "Exact chapter/topic name from syllabus",
+      "questions": [
+        {{
+          "paper": "paper filename",
+          "number": "Q1(a)",
+          "page": 1,
+          "text": "exact PYQ wording"
+        }}
+      ]
+    }}
+  ],
+  "unmapped": [
+    {{
+      "paper": "paper filename",
+      "number": "Qx",
+      "page": 1,
+      "text": "exact PYQ wording"
+    }}
+  ]
+}}
+"""
+
+    response = await call_llm_with_retry(
+        prompt_text,
+        max_retries=2,
+    )
+
+    result = _parse_llm_json(
+        response.content
+    )
+
+    if not isinstance(result, dict):
+        raise ValueError("Invalid chapter mapping response.")
+
+    chapters = result.get("chapters", [])
+    unmapped = result.get("unmapped", [])
+
+    if not isinstance(chapters, list):
+        raise ValueError("Invalid chapters response.")
+
+    if not isinstance(unmapped, list):
+        unmapped = []
+
+    return {
+        "chapters": chapters,
+        "unmapped": unmapped,
+    }
+
+
+def _chapter_mapping_markdown(result: dict) -> str:
+    lines = [
+        "# Chapter-wise PYQs",
+        "",
+        "PYQs are grouped according to the uploaded syllabus. "
+        "Question wording is preserved from the extracted paper.",
+        "",
+    ]
+
+    chapters = result.get("chapters", [])
+
+    for chapter in chapters:
+        unit = str(chapter.get("unit", "")).strip()
+        title = str(chapter.get("chapter", "Unclassified")).strip()
+        heading = f"{unit} — {title}" if unit else title
+
+        lines.append(f"## {heading}")
+        lines.append("")
+
+        for question in chapter.get("questions", []):
+            paper = str(question.get("paper", "")).strip()
+            number = str(question.get("number", "")).strip()
+            text = str(question.get("text", "")).strip()
+            page = question.get("page")
+
+            prefix = f"**{number}**" if number else "**PYQ**"
+            lines.append(f"- {prefix} {text}")
+
+            metadata = []
+            if paper:
+                metadata.append(paper)
+            if page:
+                metadata.append(f"page {page}")
+
+            if metadata:
+                lines.append(
+                    f"  - _{', '.join(metadata)}_"
+                )
+
+        lines.append("")
+
+    unmapped = result.get("unmapped", [])
+
+    if unmapped:
+        lines.append("## Could not confidently map")
+        lines.append("")
+
+        for question in unmapped:
+            paper = str(question.get("paper", "")).strip()
+            number = str(question.get("number", "")).strip()
+            text = str(question.get("text", "")).strip()
+            lines.append(
+                f"- **{number or 'PYQ'}** {text} "
+                f"_{paper}_"
+            )
+
+    return "\n".join(lines).strip()
+
+
+@app.post("/api/ocr/upload")
+async def upload_ocr_document(
+    file: UploadFile = File(...),
+    document_type: str = Form("auto"),
+    user_id: int = Depends(
+        auth.get_current_user
+    ),
+):
+    """OCR upload path.
+
+    This is deliberately separate from /api/upload so the existing RAG upload
+    behavior is untouched. OCR documents are also indexed into the existing
+    Pinecone store so they remain usable by normal ScholarAI chat.
+    """
+
+    filename = (file.filename or "").strip()
+
+    if not filename:
+        raise HTTPException(
+            status_code=400,
+            detail="No file selected.",
+        )
+
+    extension = os.path.splitext(filename)[1].lower()
+
+    if extension not in OCR_ALLOWED_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Unsupported file type. Upload PDF, PNG, JPG, JPEG, "
+                "WEBP, BMP, TIF, or TIFF."
+            ),
+        )
+
+    requested_type = (document_type or "auto").strip().lower()
+
+    if requested_type not in {
+        "auto",
+        "syllabus",
+        "pyq",
+        "other",
+    }:
+        requested_type = "auto"
+
+    tmp_file_path = None
+
+    try:
+        content = await file.read()
+
+        if not content:
+            raise HTTPException(
+                status_code=400,
+                detail="The uploaded file is empty.",
+            )
+
+        with tempfile.NamedTemporaryFile(
+            delete=False,
+            suffix=extension,
+        ) as tmp_file:
+            tmp_file.write(content)
+            tmp_file_path = tmp_file.name
+
+        extracted = await asyncio.to_thread(
+            ocr_service.analyze_document,
+            tmp_file_path,
+            requested_type,
+        )
+
+        extracted_text = extracted["text"]
+        detected_type = extracted["document_type"]
+
+        document_id = db.create_ocr_document(
+            user_id=user_id,
+            filename=filename,
+            document_type=detected_type,
+            extracted_text=extracted_text,
+            size_bytes=len(content),
+            page_count=extracted["page_count"],
+            ocr_used=extracted["ocr_used"],
+        )
+
+        questions = []
+
+        if detected_type == "pyq":
+            questions = ocr_service.parse_question_blocks(
+                extracted_text
+            )
+
+            for question in questions:
+                db.add_ocr_question(
+                    document_id=document_id,
+                    question_number=question["number"],
+                    question_text=question["text"],
+                    page_number=question.get("page", 1),
+                )
+
+        # Index OCR text into the existing RAG store as an additive feature.
+        try:
+            source_lower = filename.lower()
+            document = Document(
+                page_content=extracted_text,
+                metadata={
+                    "source": filename,
+                    "source_lower": source_lower,
+                    "user_id": user_id,
+                    "ocr_document_id": document_id,
+                    "document_type": detected_type,
+                },
+            )
+
+            splitter = RecursiveCharacterTextSplitter(
+                chunk_size=1500,
+                chunk_overlap=250,
+            )
+
+            chunks = splitter.split_documents(
+                [document]
+            )
+
+            if chunks:
+                await asyncio.to_thread(
+                    vectorStore.add_documents,
+                    chunks,
+                )
+
+            label = register_source(filename)
+
+            try:
+                db.add_source(
+                    user_id=user_id,
+                    filename=filename,
+                    label=label,
+                    size_bytes=len(content),
+                    chunk_count=len(chunks),
+                )
+            except Exception as source_error:
+                print(
+                    "WARNING: OCR source registration skipped:",
+                    source_error,
+                )
+
+        except Exception as index_error:
+            # OCR data remains usable even if Pinecone is temporarily down.
+            print(
+                "WARNING: OCR document indexing failed:",
+                index_error,
+            )
+
+        return {
+            "message": f"Successfully processed {filename}.",
+            "filename": filename,
+            "document_id": document_id,
+            "document_type": detected_type,
+            "size_bytes": len(content),
+            "page_count": extracted["page_count"],
+            "ocr_used": extracted["ocr_used"],
+            "question_count": len(questions),
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as e:
+        print(
+            "ERROR in /api/ocr/upload:",
+            str(e),
+        )
+        print(traceback.format_exc())
+
+        raise HTTPException(
+            status_code=500,
+            detail=f"OCR processing failed: {str(e)}",
+        )
+
+    finally:
+        if (
+            tmp_file_path
+            and os.path.exists(tmp_file_path)
+        ):
+            try:
+                os.remove(tmp_file_path)
+            except Exception:
+                pass
+
+
+@app.get("/api/ocr/documents")
+async def get_ocr_documents(
+    user_id: int = Depends(
+        auth.get_current_user
+    ),
+):
+    return {
+        "documents": db.list_ocr_documents(user_id)
+    }
+
+
+@app.post("/api/ocr/chapter-wise-pyq")
+async def chapter_wise_pyq(
+    user_id: int = Depends(
+        auth.get_current_user
+    ),
+):
+    """Map the latest syllabus to all uploaded PYQ papers for this user."""
+
+    syllabus = db.get_latest_ocr_document(
+        user_id,
+        "syllabus",
+    )
+
+    if not syllabus:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Please upload a syllabus PDF first. "
+                "Name it something like Syllabus.pdf or choose Syllabus "
+                "when uploading."
+            ),
+        )
+
+    pyq_documents = db.list_ocr_documents_by_type(
+        user_id,
+        "pyq",
+    )
+
+    if not pyq_documents:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Please upload at least one PYQ paper first."
+            ),
+        )
+
+    try:
+        result = await _map_pyqs_to_syllabus(
+            syllabus["extracted_text"],
+            pyq_documents,
+        )
+
+        return {
+            "message": "Chapter-wise PYQs generated successfully.",
+            "syllabus": syllabus["filename"],
+            "papers": [
+                document["filename"]
+                for document in pyq_documents
+            ],
+            "result": result,
+            "markdown": _chapter_mapping_markdown(result),
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as e:
+        print(
+            "ERROR in /api/ocr/chapter-wise-pyq:",
+            str(e),
+        )
+        print(traceback.format_exc())
+
+        if is_rate_limit_error(e):
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "ScholarAI is temporarily rate-limited by Groq. "
+                    "Please wait a moment and try again."
+                ),
+            )
+
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Could not map the PYQs to the syllabus. "
+                "Please try again."
+            ),
+        )
 
 
 # ============================================================

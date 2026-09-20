@@ -1,3 +1,5 @@
+# FILE: database.py
+
 """
 SQLite database for ScholarAI.
 
@@ -420,6 +422,50 @@ def init_db():
             CREATE INDEX IF NOT EXISTS
             idx_quiz_answers_user
             ON quiz_answers(user_id)
+        """)
+
+        # ======================================================
+        # OCR DOCUMENTS / PYQ QUESTIONS
+        # ======================================================
+
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS ocr_documents (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                filename TEXT NOT NULL,
+                document_type TEXT NOT NULL,
+                extracted_text TEXT NOT NULL,
+                size_bytes INTEGER,
+                page_count INTEGER,
+                ocr_used INTEGER DEFAULT 0,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (user_id) REFERENCES users(id)
+            )
+        """)
+
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS ocr_questions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                document_id INTEGER NOT NULL,
+                question_number TEXT,
+                question_text TEXT NOT NULL,
+                page_number INTEGER,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (document_id) REFERENCES ocr_documents(id)
+                    ON DELETE CASCADE
+            )
+        """)
+
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS
+            idx_ocr_documents_user_type
+            ON ocr_documents(user_id, document_type)
+        """)
+
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS
+            idx_ocr_questions_document
+            ON ocr_questions(document_id)
         """)
 
         conn.commit()
@@ -1054,3 +1100,164 @@ def submit_quiz_answers(
                 else 0
             ),
         }
+
+# ============================================================
+# OCR DOCUMENTS
+# ============================================================
+
+def create_ocr_document(
+    user_id: int,
+    filename: str,
+    document_type: str,
+    extracted_text: str,
+    size_bytes: int,
+    page_count: int,
+    ocr_used: bool,
+) -> int:
+    with get_conn() as conn:
+        cursor = conn.execute(
+            """
+            INSERT INTO ocr_documents (
+                user_id,
+                filename,
+                document_type,
+                extracted_text,
+                size_bytes,
+                page_count,
+                ocr_used,
+                created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                user_id,
+                filename,
+                document_type,
+                extracted_text,
+                size_bytes,
+                page_count,
+                1 if ocr_used else 0,
+                _now(),
+            ),
+        )
+        conn.commit()
+        return int(cursor.lastrowid)
+
+
+def add_ocr_question(
+    document_id: int,
+    question_number: str,
+    question_text: str,
+    page_number: int,
+) -> int:
+    with get_conn() as conn:
+        cursor = conn.execute(
+            """
+            INSERT INTO ocr_questions (
+                document_id,
+                question_number,
+                question_text,
+                page_number,
+                created_at
+            )
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                document_id,
+                question_number,
+                question_text,
+                page_number,
+                _now(),
+            ),
+        )
+        conn.commit()
+        return int(cursor.lastrowid)
+
+
+def list_ocr_documents(
+    user_id: int,
+) -> list[dict]:
+    with get_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT
+                id,
+                filename,
+                document_type,
+                size_bytes,
+                page_count,
+                ocr_used,
+                created_at
+            FROM ocr_documents
+            WHERE user_id = ?
+            ORDER BY id DESC
+            """,
+            (user_id,),
+        ).fetchall()
+
+        return [dict(row) for row in rows]
+
+
+def get_latest_ocr_document(
+    user_id: int,
+    document_type: str,
+) -> dict | None:
+    with get_conn() as conn:
+        row = conn.execute(
+            """
+            SELECT *
+            FROM ocr_documents
+            WHERE user_id = ?
+            AND document_type = ?
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (user_id, document_type),
+        ).fetchone()
+
+        return dict(row) if row else None
+
+
+def list_ocr_documents_by_type(
+    user_id: int,
+    document_type: str,
+) -> list[dict]:
+    with get_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT *
+            FROM ocr_documents
+            WHERE user_id = ?
+            AND document_type = ?
+            ORDER BY id DESC
+            """,
+            (user_id, document_type),
+        ).fetchall()
+
+        return [dict(row) for row in rows]
+
+
+def list_ocr_questions(
+    user_id: int,
+    document_id: int,
+) -> list[dict]:
+    with get_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT
+                q.id,
+                q.document_id,
+                q.question_number,
+                q.question_text,
+                q.page_number
+            FROM ocr_questions q
+            JOIN ocr_documents d
+                ON d.id = q.document_id
+            WHERE d.user_id = ?
+            AND d.id = ?
+            ORDER BY q.id ASC
+            """,
+            (user_id, document_id),
+        ).fetchall()
+
+        return [dict(row) for row in rows]
