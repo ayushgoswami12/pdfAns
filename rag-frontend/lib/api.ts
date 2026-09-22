@@ -1243,15 +1243,7 @@ export async function listNotebookDocuments(): Promise<NotebookDocument[]> {
 
 export async function getNotebookDocumentViewUrl(documentId: number): Promise<string> {
   const base = await getApiBase();
-  const token = getToken();
 
-  if (!token) {
-    throw new Error("Please log in again.");
-  }
-
-  // The backend requires the bearer token, so the browser cannot simply
-  // open the endpoint in a new tab. Fetch the PDF and create a temporary
-  // object URL instead.
   const res = await fetch(
     `${base}/api/notebook/documents/${documentId}/view`,
     {
@@ -1267,7 +1259,22 @@ export async function getNotebookDocumentViewUrl(documentId: number): Promise<st
     throw new Error(data.detail || `Failed to open notebook PDF (${res.status})`);
   }
 
-  const blob = await res.blob();
+  const data = await res.json();
+
+  if (!data.pdf_base64) {
+    throw new Error("The server did not return PDF data.");
+  }
+
+  const byteCharacters = atob(data.pdf_base64);
+  const byteNumbers = new Array(byteCharacters.length);
+
+  for (let i = 0; i < byteCharacters.length; i++) {
+    byteNumbers[i] = byteCharacters.charCodeAt(i);
+  }
+
+  const byteArray = new Uint8Array(byteNumbers);
+  const blob = new Blob([byteArray], { type: "application/pdf" });
+
   return URL.createObjectURL(blob);
 }
 

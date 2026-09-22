@@ -24,6 +24,7 @@ import traceback
 import sys
 import json
 import re
+import base64
 
 from langchain_core.documents import Document
 
@@ -1454,21 +1455,10 @@ async def view_notebook_document(
             detail="This PDF was uploaded before PDF viewing was added. Please upload it again to view it.",
         )
 
-    safe_filename = (
-        document["filename"]
-        .replace('"', "")
-        .replace("\n", " ")
-        .replace("\r", " ")
-    )
-
-    return StreamingResponse(
-        iter([pdf_data]),
-        media_type="application/pdf",
-        headers={
-            "Content-Disposition": f'inline; filename="{safe_filename}"',
-            "Cache-Control": "private, no-store",
-        },
-    )
+    return {
+        "filename": document["filename"],
+        "pdf_base64": base64.b64encode(pdf_data).decode("ascii"),
+    }
 
 
 # ============================================================
