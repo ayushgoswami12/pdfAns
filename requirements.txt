@@ -27,3 +27,6 @@ bcrypt
 PyJWT
 python-multipart
 easyocr
+PyMuPDF
+Pillow
+google-genai
