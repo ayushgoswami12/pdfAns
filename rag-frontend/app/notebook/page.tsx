@@ -858,7 +858,7 @@ export default function NotebookPage() {
                                 setContent(event.target.value);
                                 scheduleSave();
                               }}
-                              placeholder="# Chapter 4 — Syntax Analysis\n\nWrite your notes here…\n\nUse #, ## or ### at the start of a line for headings.\n\n• Add formulas, key points, examples, or anything you want to remember."
+                              placeholder="Write your note here."
                               className="min-h-[480px] w-full resize-none bg-transparent outline-none p-7 sm:p-10 pl-7 sm:pl-14 text-[15px] leading-8 text-[#4f4860] placeholder:text-[#c5bfd3] font-[system-ui,sans-serif]"
                               spellCheck
                             />
