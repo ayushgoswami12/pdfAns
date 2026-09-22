@@ -160,6 +160,25 @@ export interface SourceRow {
   user_id?: number;
 }
 
+export interface NotebookNote {
+  id: number;
+  user_id: number;
+  title: string;
+  content: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NotebookDocument {
+  id: number;
+  user_id: number;
+  filename: string;
+  size_bytes: number | null;
+  page_count: number | null;
+  uploaded_at: string;
+}
+
+
 
 export interface SessionRow {
   id: number;
@@ -1128,4 +1147,165 @@ export async function submitQuizAttempt(
 
 
   return res.json();
+}
+
+// ============================================================
+// NOTEBOOK
+// ============================================================
+
+export async function listNotebookNotes(): Promise<NotebookNote[]> {
+  const base = await getApiBase();
+  const res = await fetch(`${base}/api/notebook/notes`, {
+    method: "GET",
+    headers: authHeaders(),
+    cache: "no-store",
+  });
+
+  if (!res.ok) {
+    await checkAuthFailure(res);
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.detail || `Failed to load notebook notes (${res.status})`);
+  }
+
+  const data = await res.json();
+  return data.notes ?? [];
+}
+
+export async function createNotebookNote(title: string, content: string): Promise<NotebookNote> {
+  const base = await getApiBase();
+  const res = await fetch(`${base}/api/notebook/notes`, {
+    method: "POST",
+    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify({ title, content }),
+  });
+
+  if (!res.ok) {
+    await checkAuthFailure(res);
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.detail || `Failed to create notebook note (${res.status})`);
+  }
+
+  return res.json();
+}
+
+export async function updateNotebookNote(noteId: number, title: string, content: string): Promise<NotebookNote> {
+  const base = await getApiBase();
+  const res = await fetch(`${base}/api/notebook/notes/${noteId}`, {
+    method: "PUT",
+    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify({ title, content }),
+  });
+
+  if (!res.ok) {
+    await checkAuthFailure(res);
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.detail || `Failed to save notebook note (${res.status})`);
+  }
+
+  return res.json();
+}
+
+export async function deleteNotebookNote(noteId: number): Promise<void> {
+  const base = await getApiBase();
+  const res = await fetch(`${base}/api/notebook/notes/${noteId}`, {
+    method: "DELETE",
+    headers: authHeaders(),
+  });
+
+  if (!res.ok) {
+    await checkAuthFailure(res);
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.detail || `Failed to delete notebook note (${res.status})`);
+  }
+}
+
+export async function addResponseToNotebook(content: string, title = "AI Response"): Promise<NotebookNote> {
+  return createNotebookNote(title, content);
+}
+
+export async function listNotebookDocuments(): Promise<NotebookDocument[]> {
+  const base = await getApiBase();
+  const res = await fetch(`${base}/api/notebook/documents`, {
+    method: "GET",
+    headers: authHeaders(),
+    cache: "no-store",
+  });
+
+  if (!res.ok) {
+    await checkAuthFailure(res);
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.detail || `Failed to load notebook PDFs (${res.status})`);
+  }
+
+  const data = await res.json();
+  return data.documents ?? [];
+}
+
+export async function getNotebookDocumentViewUrl(documentId: number): Promise<string> {
+  const base = await getApiBase();
+  const token = getToken();
+
+  if (!token) {
+    throw new Error("Please log in again.");
+  }
+
+  // The backend requires the bearer token, so the browser cannot simply
+  // open the endpoint in a new tab. Fetch the PDF and create a temporary
+  // object URL instead.
+  const res = await fetch(
+    `${base}/api/notebook/documents/${documentId}/view`,
+    {
+      method: "GET",
+      headers: authHeaders(),
+      cache: "no-store",
+    }
+  );
+
+  if (!res.ok) {
+    await checkAuthFailure(res);
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.detail || `Failed to open notebook PDF (${res.status})`);
+  }
+
+  const blob = await res.blob();
+  return URL.createObjectURL(blob);
+}
+
+
+export async function uploadNotebookPdf(file: File, onProgress?: (percent: number) => void): Promise<NotebookDocument & { ocr_used?: boolean }> {
+  const base = await getApiBase();
+  const token = getToken();
+
+  return new Promise((resolve, reject) => {
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `${base}/api/notebook/upload`);
+
+    if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable && onProgress) {
+        onProgress(Math.round((event.loaded / event.total) * 100));
+      }
+    };
+
+    xhr.onload = () => {
+      let data: any = {};
+      try { data = JSON.parse(xhr.responseText || "{}"); } catch { data = {}; }
+
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(data);
+        return;
+      }
+
+      if (xhr.status === 401) clearToken();
+      reject(new Error(data.detail || `Notebook PDF upload failed (${xhr.status})`));
+    };
+
+    xhr.onerror = () => reject(new Error("Network/CORS error during notebook PDF upload."));
+    xhr.onabort = () => reject(new Error("Notebook PDF upload was cancelled."));
+    xhr.send(formData);
+  });
 }

@@ -1027,13 +1027,20 @@ async def upload_ocr_document(
             tmp_file_path = tmp_file.name
 
         extracted = await asyncio.to_thread(
-            ocr_service.analyze_document,
+            ocr_service.extract_document_text,
             tmp_file_path,
-            requested_type,
+            filename,
         )
 
         extracted_text = extracted["text"]
-        detected_type = extracted["document_type"]
+
+        if requested_type == "auto":
+            detected_type = ocr_service.detect_document_type(
+                filename,
+                extracted_text,
+            )
+        else:
+            detected_type = requested_type
 
         document_id = db.create_ocr_document(
             user_id=user_id,
@@ -1239,6 +1246,229 @@ async def chapter_wise_pyq(
                 "Please try again."
             ),
         )
+
+
+# ============================================================
+# NOTEBOOK
+# ============================================================
+
+class NotebookNoteRequest(BaseModel):
+    title: str = "Untitled note"
+    content: str = ""
+
+
+@app.get("/api/notebook/notes")
+async def get_notebook_notes(
+    user_id: int = Depends(auth.get_current_user),
+):
+    return {
+        "notes": db.list_notebook_notes(user_id)
+    }
+
+
+@app.post("/api/notebook/notes")
+async def create_notebook_note_route(
+    data: NotebookNoteRequest,
+    user_id: int = Depends(auth.get_current_user),
+):
+    title = (data.title or "Untitled note").strip()
+
+    if not title:
+        title = "Untitled note"
+
+    note_id = db.create_notebook_note(
+        user_id=user_id,
+        title=title[:200],
+        content=data.content or "",
+    )
+
+    note = db.get_notebook_note(
+        user_id,
+        note_id,
+    )
+
+    return note
+
+
+@app.put("/api/notebook/notes/{note_id}")
+async def update_notebook_note_route(
+    note_id: int,
+    data: NotebookNoteRequest,
+    user_id: int = Depends(auth.get_current_user),
+):
+    title = (data.title or "Untitled note").strip()
+
+    if not title:
+        title = "Untitled note"
+
+    updated = db.update_notebook_note(
+        user_id=user_id,
+        note_id=note_id,
+        title=title[:200],
+        content=data.content or "",
+    )
+
+    if not updated:
+        raise HTTPException(
+            status_code=404,
+            detail="Notebook note not found.",
+        )
+
+    return db.get_notebook_note(
+        user_id,
+        note_id,
+    )
+
+
+@app.delete("/api/notebook/notes/{note_id}")
+async def delete_notebook_note_route(
+    note_id: int,
+    user_id: int = Depends(auth.get_current_user),
+):
+    deleted = db.delete_notebook_note(
+        user_id,
+        note_id,
+    )
+
+    if not deleted:
+        raise HTTPException(
+            status_code=404,
+            detail="Notebook note not found.",
+        )
+
+    return {"message": "Note deleted."}
+
+
+@app.post("/api/notebook/upload")
+async def upload_notebook_pdf(
+    file: UploadFile = File(...),
+    user_id: int = Depends(auth.get_current_user),
+):
+    filename = (file.filename or "").strip()
+
+    if not filename:
+        raise HTTPException(
+            status_code=400,
+            detail="No file selected.",
+        )
+
+    extension = os.path.splitext(filename)[1].lower()
+
+    if extension != ".pdf":
+        raise HTTPException(
+            status_code=400,
+            detail="Notebook uploads currently support PDF files only.",
+        )
+
+    content = await file.read()
+
+    if not content:
+        raise HTTPException(
+            status_code=400,
+            detail="The uploaded PDF is empty.",
+        )
+
+    tmp_file_path = None
+
+    try:
+        with tempfile.NamedTemporaryFile(
+            delete=False,
+            suffix=".pdf",
+        ) as tmp_file:
+            tmp_file.write(content)
+            tmp_file_path = tmp_file.name
+
+        extracted = await asyncio.to_thread(
+            ocr_service.extract_document_text,
+            tmp_file_path,
+            filename,
+        )
+
+        document_id = db.create_notebook_document(
+            user_id=user_id,
+            filename=filename,
+            extracted_text=extracted["text"],
+            size_bytes=len(content),
+            page_count=extracted["page_count"],
+            pdf_data=content,
+        )
+
+        return {
+            "id": document_id,
+            "filename": filename,
+            "size_bytes": len(content),
+            "page_count": extracted["page_count"],
+            "ocr_used": extracted["ocr_used"],
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as e:
+        print("ERROR uploading notebook PDF:", str(e))
+        print(traceback.format_exc())
+
+        raise HTTPException(
+            status_code=500,
+            detail=f"Notebook PDF upload failed: {str(e)}",
+        )
+
+    finally:
+        if tmp_file_path and os.path.exists(tmp_file_path):
+            try:
+                os.remove(tmp_file_path)
+            except Exception:
+                pass
+
+
+@app.get("/api/notebook/documents")
+async def get_notebook_documents(
+    user_id: int = Depends(auth.get_current_user),
+):
+    return {
+        "documents": db.list_notebook_documents(user_id)
+    }
+
+
+@app.get("/api/notebook/documents/{document_id}/view")
+async def view_notebook_document(
+    document_id: int,
+    user_id: int = Depends(auth.get_current_user),
+):
+    document = db.get_notebook_document(
+        user_id,
+        document_id,
+    )
+
+    if not document:
+        raise HTTPException(
+            status_code=404,
+            detail="Notebook PDF not found.",
+        )
+
+    pdf_data = document.get("pdf_data")
+
+    if not pdf_data:
+        raise HTTPException(
+            status_code=404,
+            detail="This PDF was uploaded before PDF viewing was added. Please upload it again to view it.",
+        )
+
+    safe_filename = (
+        document["filename"]
+        .replace('"', "")
+        .replace("\n", " ")
+        .replace("\r", " ")
+    )
+
+    return StreamingResponse(
+        iter([pdf_data]),
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'inline; filename="{safe_filename}"',
+            "Cache-Control": "private, no-store",
+        },
+    )
 
 
 # ============================================================

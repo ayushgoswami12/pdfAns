@@ -54,6 +54,7 @@ import {
   uploadFile,
   generateQuiz,
   generateChapterWisePyq,
+  addResponseToNotebook,
   SessionRow,
   QuizQuestion,
 } from "@/lib/api";
@@ -373,6 +374,19 @@ function ChatPageInner() {
     setQuizCount,
   ] =
     useState(5);
+
+
+  const [
+    notebookSavingIndex,
+    setNotebookSavingIndex,
+  ] =
+    useState<number | null>(null);
+
+  const [
+    notebookSavedIndex,
+    setNotebookSavedIndex,
+  ] =
+    useState<number | null>(null);
 
 
   // ==========================================================
@@ -1087,6 +1101,36 @@ function ChatPageInner() {
       await handleCreateQuiz(
         quizCount
       );
+    };
+
+
+  const handleAddResponseToNotebook =
+    async (
+      content: string,
+      messageIndex: number
+    ) => {
+      if (!content.trim()) return;
+
+      setNotebookSavingIndex(messageIndex);
+
+      try {
+        await addResponseToNotebook(content, "AI Response");
+        setNotebookSavedIndex(messageIndex);
+
+        window.setTimeout(() => {
+          setNotebookSavedIndex((current) =>
+            current === messageIndex ? null : current
+          );
+        }, 1800);
+      } catch (error) {
+        window.alert(
+          error instanceof Error
+            ? error.message
+            : "Could not add the response to Notebook."
+        );
+      } finally {
+        setNotebookSavingIndex(null);
+      }
     };
 
 
@@ -1860,11 +1904,37 @@ function ChatPageInner() {
 
                               {msg.content ? (
 
-                                <MarkdownLite
-                                  text={
-                                    msg.content
-                                  }
-                                />
+                                <>
+                                  <MarkdownLite
+                                    text={
+                                      msg.content
+                                    }
+                                  />
+
+                                  {!isTyping && (
+                                    <div className="mt-4 pt-3 border-t border-gray-200 flex justify-end">
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          handleAddResponseToNotebook(
+                                            msg.content,
+                                            messageIndex
+                                          )
+                                        }
+                                        disabled={
+                                          notebookSavingIndex === messageIndex
+                                        }
+                                        className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-[12px] font-semibold text-gray-600 border border-gray-200 bg-white hover:border-violet-300 hover:text-violet-600 transition-colors disabled:opacity-60"
+                                      >
+                                        {notebookSavedIndex === messageIndex
+                                          ? "✓ Added to Notebook"
+                                          : notebookSavingIndex === messageIndex
+                                            ? "Adding…"
+                                            : "＋ Add to Notebook"}
+                                      </button>
+                                    </div>
+                                  )}
+                                </>
 
                               ) : isTyping &&
                                 messageIndex ===

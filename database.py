@@ -468,6 +468,58 @@ def init_db():
             ON ocr_questions(document_id)
         """)
 
+        # ======================================================
+        # NOTEBOOK
+        # ======================================================
+
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS notebook_notes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                title TEXT NOT NULL,
+                content TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (user_id) REFERENCES users(id)
+            )
+        """)
+
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS notebook_documents (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                filename TEXT NOT NULL,
+                extracted_text TEXT NOT NULL DEFAULT '',
+                pdf_data BLOB,
+                size_bytes INTEGER,
+                page_count INTEGER,
+                uploaded_at TEXT NOT NULL,
+                FOREIGN KEY (user_id) REFERENCES users(id)
+            )
+        """)
+
+        # Add binary PDF storage to existing Notebook databases.
+        # Older rows remain valid but their original PDF cannot be viewed
+        # until the file is uploaded again.
+        _add_column_if_missing(
+            conn,
+            "notebook_documents",
+            "pdf_data",
+            "BLOB",
+        )
+
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS
+            idx_notebook_notes_user_updated
+            ON notebook_notes(user_id, updated_at)
+        """)
+
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS
+            idx_notebook_documents_user_uploaded
+            ON notebook_documents(user_id, uploaded_at)
+        """)
+
         conn.commit()
 
 
@@ -1258,6 +1310,222 @@ def list_ocr_questions(
             ORDER BY q.id ASC
             """,
             (user_id, document_id),
+        ).fetchall()
+
+        return [dict(row) for row in rows]
+
+
+# ============================================================
+# NOTEBOOK NOTES
+# ============================================================
+
+def create_notebook_note(
+    user_id: int,
+    title: str,
+    content: str,
+) -> int:
+    now = _now()
+
+    with get_conn() as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO notebook_notes (
+                user_id,
+                title,
+                content,
+                created_at,
+                updated_at
+            )
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                user_id,
+                title,
+                content,
+                now,
+                now,
+            ),
+        )
+
+        conn.commit()
+        return cur.lastrowid
+
+
+def list_notebook_notes(user_id: int) -> list[dict]:
+    with get_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT
+                id,
+                user_id,
+                title,
+                content,
+                created_at,
+                updated_at
+            FROM notebook_notes
+            WHERE user_id = ?
+            ORDER BY updated_at DESC
+            """,
+            (user_id,),
+        ).fetchall()
+
+        return [dict(row) for row in rows]
+
+
+def get_notebook_note(
+    user_id: int,
+    note_id: int,
+):
+    with get_conn() as conn:
+        row = conn.execute(
+            """
+            SELECT
+                id,
+                user_id,
+                title,
+                content,
+                created_at,
+                updated_at
+            FROM notebook_notes
+            WHERE id = ?
+            AND user_id = ?
+            """,
+            (note_id, user_id),
+        ).fetchone()
+
+        return dict(row) if row else None
+
+
+def update_notebook_note(
+    user_id: int,
+    note_id: int,
+    title: str,
+    content: str,
+) -> bool:
+    with get_conn() as conn:
+        cur = conn.execute(
+            """
+            UPDATE notebook_notes
+            SET
+                title = ?,
+                content = ?,
+                updated_at = ?
+            WHERE id = ?
+            AND user_id = ?
+            """,
+            (
+                title,
+                content,
+                _now(),
+                note_id,
+                user_id,
+            ),
+        )
+
+        conn.commit()
+        return cur.rowcount > 0
+
+
+def delete_notebook_note(
+    user_id: int,
+    note_id: int,
+) -> bool:
+    with get_conn() as conn:
+        cur = conn.execute(
+            """
+            DELETE FROM notebook_notes
+            WHERE id = ?
+            AND user_id = ?
+            """,
+            (note_id, user_id),
+        )
+
+        conn.commit()
+        return cur.rowcount > 0
+
+
+# ============================================================
+# NOTEBOOK DOCUMENTS
+# ============================================================
+
+def create_notebook_document(
+    user_id: int,
+    filename: str,
+    extracted_text: str,
+    size_bytes: int,
+    page_count: int,
+    pdf_data: bytes | None = None,
+) -> int:
+    with get_conn() as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO notebook_documents (
+                user_id,
+                filename,
+                extracted_text,
+                pdf_data,
+                size_bytes,
+                page_count,
+                uploaded_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                user_id,
+                filename,
+                extracted_text,
+                pdf_data,
+                size_bytes,
+                page_count,
+                _now(),
+            ),
+        )
+
+        conn.commit()
+        return cur.lastrowid
+
+
+def get_notebook_document(
+    user_id: int,
+    document_id: int,
+):
+    with get_conn() as conn:
+        row = conn.execute(
+            """
+            SELECT
+                id,
+                user_id,
+                filename,
+                pdf_data,
+                size_bytes,
+                page_count,
+                uploaded_at
+            FROM notebook_documents
+            WHERE id = ?
+            AND user_id = ?
+            """,
+            (document_id, user_id),
+        ).fetchone()
+
+        return dict(row) if row else None
+
+
+def list_notebook_documents(user_id: int) -> list[dict]:
+    with get_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT
+                id,
+                user_id,
+                filename,
+                size_bytes,
+                page_count,
+                uploaded_at
+            FROM notebook_documents
+            WHERE user_id = ?
+            ORDER BY uploaded_at DESC
+            """,
+            (user_id,),
         ).fetchall()
 
         return [dict(row) for row in rows]
