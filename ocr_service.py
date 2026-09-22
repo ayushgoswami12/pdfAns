@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 import fitz
+import numpy as np
 from PIL import Image
 from rapidocr import RapidOCR
 
@@ -35,7 +36,7 @@ SUPPORTED_EXTENSIONS = {
 # ---------------------------------------------------------
 
 # Loaded once when this module starts.
-# RapidOCR uses ONNX Runtime models.
+# RapidOCR uses lightweight ONNX Runtime models.
 _ocr_engine = RapidOCR()
 
 
@@ -77,15 +78,40 @@ def _vision_ocr_image(image: Image.Image) -> str:
     if image.mode not in ("RGB", "L"):
         image = image.convert("RGB")
 
-    result, _ = _ocr_engine(image)
+    image_array = np.array(image)
 
-    if not result:
+    raw_result = _ocr_engine(image_array)
+
+    # Newer RapidOCR versions return a single
+    # RapidOCROutput object. Older versions may return
+    # a (result, elapsed_time) tuple.
+    if isinstance(raw_result, tuple):
+        result = raw_result[0]
+    else:
+        result = raw_result
+
+    if result is None:
+        return ""
+
+    texts = getattr(result, "txts", None)
+
+    if texts is None and isinstance(result, list):
+        # Older API: result is a list containing entries
+        # such as [box, text, confidence].
+        texts = [
+            entry[1]
+            for entry in result
+            if isinstance(entry, (list, tuple))
+            and len(entry) > 1
+        ]
+
+    if not texts:
         return ""
 
     text = "\n".join(
-        item[1]
-        for item in result
-        if len(item) >= 2 and item[1]
+        str(item).strip()
+        for item in texts
+        if item is not None and str(item).strip()
     )
 
     return _clean_text(text)
