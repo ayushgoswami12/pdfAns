@@ -26,7 +26,8 @@ pypdf
 bcrypt
 PyJWT
 python-multipart
-easyocr
+rapidocr
+onnxruntime
 PyMuPDF
 Pillow
 google-genai

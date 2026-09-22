@@ -1,11 +1,8 @@
-# FILE: ocr_service.py
-
 """ScholarAI OCR helpers.
 
 Normal PDFs use PyMuPDF's native text extraction.
 
-Scanned PDF pages and image files use Google's Gemini
-Vision API for OCR.
+Scanned PDF pages and image files use RapidOCR.
 
 No Tesseract installation is required.
 """
@@ -16,10 +13,9 @@ import re
 from pathlib import Path
 from typing import Any
 
-import easyocr
 import fitz
-import numpy as np
 from PIL import Image
+from rapidocr import RapidOCR
 
 
 SUPPORTED_EXTENSIONS = {
@@ -35,12 +31,12 @@ SUPPORTED_EXTENSIONS = {
 
 
 # ---------------------------------------------------------
-# EASY OCR
+# RAPIDOCR
 # ---------------------------------------------------------
 
 # Loaded once when this module starts.
-# EasyOCR downloads its model the first time only.
-_reader = easyocr.Reader(["en"])
+# RapidOCR uses ONNX Runtime models.
+_ocr_engine = RapidOCR()
 
 
 # ---------------------------------------------------------
@@ -71,7 +67,7 @@ def _clean_text(text: str) -> str:
 
 def _vision_ocr_image(image: Image.Image) -> str:
     """
-    Extract text from an image using EasyOCR.
+    Extract text from an image using RapidOCR.
 
     No external API.
     No API key.
@@ -81,12 +77,16 @@ def _vision_ocr_image(image: Image.Image) -> str:
     if image.mode not in ("RGB", "L"):
         image = image.convert("RGB")
 
-    result = _reader.readtext(
-        np.array(image),
-        detail=0,
-    )
+    result, _ = _ocr_engine(image)
 
-    text = "\n".join(result)
+    if not result:
+        return ""
+
+    text = "\n".join(
+        item[1]
+        for item in result
+        if len(item) >= 2 and item[1]
+    )
 
     return _clean_text(text)
 
