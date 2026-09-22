@@ -1,11 +1,7 @@
-"""ScholarAI OCR helpers.
 
-Normal PDFs use PyMuPDF's native text extraction.
+# FILE: ocr_service.py
 
-Scanned PDF pages and image files use RapidOCR.
 
-No Tesseract installation is required.
-"""
 
 from __future__ import annotations
 
@@ -13,10 +9,10 @@ import re
 from pathlib import Path
 from typing import Any
 
+import easyocr
 import fitz
 import numpy as np
 from PIL import Image
-from rapidocr import RapidOCR
 
 
 SUPPORTED_EXTENSIONS = {
@@ -32,12 +28,12 @@ SUPPORTED_EXTENSIONS = {
 
 
 # ---------------------------------------------------------
-# RAPIDOCR
+# EASY OCR
 # ---------------------------------------------------------
 
 # Loaded once when this module starts.
-# RapidOCR uses lightweight ONNX Runtime models.
-_ocr_engine = RapidOCR()
+# EasyOCR downloads its model the first time only.
+_reader = easyocr.Reader(["en"])
 
 
 # ---------------------------------------------------------
@@ -68,7 +64,7 @@ def _clean_text(text: str) -> str:
 
 def _vision_ocr_image(image: Image.Image) -> str:
     """
-    Extract text from an image using RapidOCR.
+    Extract text from an image using EasyOCR.
 
     No external API.
     No API key.
@@ -78,41 +74,12 @@ def _vision_ocr_image(image: Image.Image) -> str:
     if image.mode not in ("RGB", "L"):
         image = image.convert("RGB")
 
-    image_array = np.array(image)
-
-    raw_result = _ocr_engine(image_array)
-
-    # Newer RapidOCR versions return a single
-    # RapidOCROutput object. Older versions may return
-    # a (result, elapsed_time) tuple.
-    if isinstance(raw_result, tuple):
-        result = raw_result[0]
-    else:
-        result = raw_result
-
-    if result is None:
-        return ""
-
-    texts = getattr(result, "txts", None)
-
-    if texts is None and isinstance(result, list):
-        # Older API: result is a list containing entries
-        # such as [box, text, confidence].
-        texts = [
-            entry[1]
-            for entry in result
-            if isinstance(entry, (list, tuple))
-            and len(entry) > 1
-        ]
-
-    if not texts:
-        return ""
-
-    text = "\n".join(
-        str(item).strip()
-        for item in texts
-        if item is not None and str(item).strip()
+    result = _reader.readtext(
+        np.array(image),
+        detail=0,
     )
+
+    text = "\n".join(result)
 
     return _clean_text(text)
 
